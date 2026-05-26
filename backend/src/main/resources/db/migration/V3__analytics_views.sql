@@ -126,6 +126,9 @@ CREATE INDEX IF NOT EXISTS idx_orders_product_status
     WHERE status = 'CONFIRMED';
 
 -- Supports v_monthly_revenue_trend date truncation without a sequential scan.
+-- Cast to ::timestamp (without timezone) before DATE_TRUNC so the expression is
+-- IMMUTABLE. DATE_TRUNC(text, timestamptz) is only STABLE because it depends on
+-- the session TimeZone setting; PostgreSQL rejects STABLE functions in indexes.
 CREATE INDEX IF NOT EXISTS idx_orders_created_month
-    ON orders (DATE_TRUNC('month', created_at))
+    ON orders (DATE_TRUNC('month', created_at::timestamp))
     WHERE status = 'CONFIRMED';
