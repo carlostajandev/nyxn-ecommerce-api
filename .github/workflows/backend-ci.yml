@@ -58,7 +58,9 @@ jobs:
 
       - name: Run integration tests (Testcontainers)
         working-directory: backend
-        run: mvn verify -DskipUnitTests -q
+        # failsafe:integration-test + failsafe:verify runs only *IT.java files (Failsafe).
+        # Surefire (*Test.java) already ran in the previous step — no duplication.
+        run: mvn failsafe:integration-test failsafe:verify -q
 
   # ── Job 2: Code quality ────────────────────────────────────────────────────
   code-quality:

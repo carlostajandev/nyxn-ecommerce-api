@@ -21,6 +21,6 @@ dist/
 .env.*.local
 application-local.yml
 application-secrets.yml
-notification-service/pnpm-lock.yaml
+# pnpm-lock.yaml is committed so CI can use `pnpm install --frozen-lockfile`
 notification-service/pnpm-workspace.yaml
 .vscode/
