@@ -11,26 +11,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nyxn.ecommerce.application.dto.CreateProductCommand;
 import com.nyxn.ecommerce.application.dto.UpdateProductCommand;
+import com.nyxn.ecommerce.testconfig.BaseIntegrationTest;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * Integration test: corre con PostgreSQL y Redis reales via Testcontainers. Profile "test" usa
- * application-test.yml con contenedores. Nombre de test: method_whenCondition_thenBehavior.
+ * Integration test for the Products API.
+ *
+ * <p>Extends {@link BaseIntegrationTest} which starts PostgreSQL and Redis containers via
+ * Testcontainers and injects the dynamic connection URLs before the application context boots. All
+ * tests in this class run against a real, isolated database — no mocks for persistence.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-@ActiveProfiles("test")
-@Testcontainers
-class ProductControllerIT {
+class ProductControllerIT extends BaseIntegrationTest {
 
   @Autowired private MockMvc mockMvc;
   @Autowired private ObjectMapper objectMapper;
