@@ -126,9 +126,10 @@ CREATE INDEX IF NOT EXISTS idx_orders_product_status
     WHERE status = 'CONFIRMED';
 
 -- Supports v_monthly_revenue_trend date truncation without a sequential scan.
--- Cast to ::timestamp (without timezone) before DATE_TRUNC so the expression is
--- IMMUTABLE. DATE_TRUNC(text, timestamptz) is only STABLE because it depends on
--- the session TimeZone setting; PostgreSQL rejects STABLE functions in indexes.
+-- A plain btree index on created_at is sufficient: PostgreSQL can use it for
+-- range scans on DATE_TRUNC('month', created_at) without a functional index.
+-- Functional indexes on TIMESTAMPTZ require an IMMUTABLE expression; casts to
+-- ::timestamp or AT TIME ZONE are STABLE (timezone-dependent), not IMMUTABLE.
 CREATE INDEX IF NOT EXISTS idx_orders_created_month
-    ON orders (DATE_TRUNC('month', created_at::timestamp))
+    ON orders (created_at)
     WHERE status = 'CONFIRMED';
