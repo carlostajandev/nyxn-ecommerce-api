@@ -1,96 +1,49 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsIn,
-  IsNotEmpty,
-  IsObject,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsNotEmpty, IsString } from 'class-validator';
 
 /**
- * Request body for POST /notifications/notify.
+ * Request body for POST /notify.
  *
- * Channel selection is the caller's responsibility here — they know the user's
- * preferred channel (from their notification preferences) better than the service
- * does. This is distinct from POST /agent/smart-notification where Claude
- * recommends the channel based on event context.
+ * Channel validation is intentionally absent here (@IsIn is not used).
+ * Reason: encoding the valid channel list in the DTO means every new channel
+ * would require changing this file — a violation of the Open/Closed Principle.
+ * The NotificationChannelRegistry handles channel validation and throws a
+ * BadRequestException (HTTP 400) for unknown values, which NestJS converts
+ * to the same JSON error body as a class-validator failure.
  */
 export class NotifyRequest {
   @ApiProperty({
-    enum: ['email', 'push', 'sms'],
-    description: 'Delivery channel. Each channel has a registered strategy.',
-    example: 'email',
-  })
-  @IsString()
-  @IsIn(['email', 'push', 'sms'], {
-    message: 'channel must be one of: email, push, sms',
-  })
-  channel!: 'email' | 'push' | 'sms';
-
-  @ApiProperty({
-    description: 'Recipient identifier (user ID, email address, or phone number)',
+    description: 'Target user identifier',
     example: 'user-abc123',
   })
   @IsString()
   @IsNotEmpty()
-  recipientId!: string;
+  userId!: string;
 
   @ApiProperty({
-    description: 'Notification title / subject line. Must be ≤ 60 chars for push compatibility.',
-    maxLength: 60,
-    example: 'New product available in Electronics',
+    description: 'Notification message body',
+    example: 'Your order has been confirmed and will arrive within 3-5 business days.',
   })
   @IsString()
   @IsNotEmpty()
-  @MaxLength(60, {
-    message: 'subject must be 60 characters or fewer (push notification title limit)',
-  })
-  subject!: string;
+  message!: string;
 
   @ApiProperty({
-    description: 'Notification body (plain text — no markdown, no HTML).',
-    example: 'The Laptop Pro 15 is now available. Grab yours before stock runs out!',
+    description: 'Delivery channel. Currently registered: email, sms, push, slack.',
+    example: 'email',
   })
   @IsString()
   @IsNotEmpty()
-  body!: string;
-
-  @ApiPropertyOptional({
-    description: 'Arbitrary key-value metadata forwarded to the strategy (e.g. deep-link URL for push).',
-    example: { deepLink: 'nyxn://products/abc-123' },
-  })
-  @IsObject()
-  @IsOptional()
-  metadata?: Record<string, unknown>;
+  channel!: string;
 }
 
-/**
- * Response from POST /notifications/notify.
- */
 export class NotifyResponse {
-  @ApiProperty({ description: 'Channel that delivered the notification', example: 'email' })
+  @ApiProperty({ example: true })
+  success!: boolean;
+
+  @ApiProperty({ example: 'email' })
   channel!: string;
 
-  @ApiProperty({
-    description: 'Provider-assigned message ID for tracing and deduplication',
-    example: 'email-3f2a1b0c-...',
-  })
-  messageId!: string;
-
-  @ApiProperty({
-    enum: ['sent', 'queued', 'failed'],
-    description:
-      '"queued" means the provider accepted the message; actual delivery is asynchronous.' +
-      ' "sent" means confirmed delivery (rare — requires provider webhook). ' +
-      '"failed" means the provider rejected the message.',
-    example: 'queued',
-  })
-  status!: 'sent' | 'queued' | 'failed';
-
-  @ApiProperty({
-    description: 'ISO-8601 timestamp when the strategy accepted the message',
-    example: '2026-01-15T10:30:00.000Z',
-  })
-  dispatchedAt!: string;
+  @ApiProperty({ example: 'user-abc123' })
+  userId!: string;
 }

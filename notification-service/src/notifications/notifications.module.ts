@@ -1,43 +1,47 @@
 import { Module } from '@nestjs/common';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
-import { NotificationStrategyRegistry } from './strategy.registry';
+import { NotificationChannelRegistry } from './registry/notification-channel.registry';
 import { NOTIFICATION_STRATEGIES } from './strategies/notification.strategy';
-import { EmailNotificationStrategy } from './strategies/email.strategy';
-import { PushNotificationStrategy } from './strategies/push.strategy';
-import { SmsNotificationStrategy } from './strategies/sms.strategy';
+import { EmailStrategy } from './strategies/email.strategy';
+import { SmsStrategy } from './strategies/sms.strategy';
+import { PushStrategy } from './strategies/push.strategy';
+import { SlackStrategy } from './strategies/slack.strategy';
 
 /**
- * Notifications module — wires the Pub/Sub subscriber and the Strategy Pattern
- * for the POST /notifications/notify dispatch endpoint.
+ * NotificationsModule wires three independent concerns:
  *
- * Strategy registration uses NestJS multi-providers: each strategy class is bound
- * to the NOTIFICATION_STRATEGIES symbol token with multi:true. NestJS collects all
- * three into an array and injects it into NotificationStrategyRegistry. Adding a
- * fourth channel (e.g. WhatsApp) requires only a new entry here and a new class —
- * no changes to the controller or the registry constructor.
+ *   1. NotificationsService     — Pub/Sub subscriber (processes inbound events).
+ *   2. NotificationsController  — POST /notify (dispatches on demand via HTTP).
+ *   3. NotificationChannelRegistry — resolves channel → strategy at request time.
+ *
+ * Adding a new notification channel (e.g. WhatsApp):
+ *   1. Create WhatsAppStrategy implements NotificationStrategy.
+ *   2. Add two lines in this file (provide + multi entry).
+ *   3. Done. Zero changes to controller, registry, or existing strategies.
  */
 @Module({
   controllers: [NotificationsController],
   providers: [
     NotificationsService,
 
-    // ── Strategy multi-providers ────────────────────────────────────────────
-    // Each strategy is registered twice:
-    //   1. As its concrete class, so it can be injected by type in tests.
-    //   2. Under the NOTIFICATION_STRATEGIES symbol token (multi:true) so the
-    //      registry receives the full list in a single injection.
-    EmailNotificationStrategy,
-    PushNotificationStrategy,
-    SmsNotificationStrategy,
+    // ── Channel strategies ──────────────────────────────────────────────────
+    // Each strategy is bound twice:
+    //   As a concrete class  → enables typed injection in unit tests.
+    //   As NOTIFICATION_STRATEGIES (multi: true) → registry receives the array.
+    EmailStrategy,
+    SmsStrategy,
+    PushStrategy,
+    SlackStrategy, // OCP demo — added without touching controller or registry
 
-    { provide: NOTIFICATION_STRATEGIES, useExisting: EmailNotificationStrategy, multi: true },
-    { provide: NOTIFICATION_STRATEGIES, useExisting: PushNotificationStrategy,  multi: true },
-    { provide: NOTIFICATION_STRATEGIES, useExisting: SmsNotificationStrategy,   multi: true },
+    { provide: NOTIFICATION_STRATEGIES, useExisting: EmailStrategy,  multi: true },
+    { provide: NOTIFICATION_STRATEGIES, useExisting: SmsStrategy,    multi: true },
+    { provide: NOTIFICATION_STRATEGIES, useExisting: PushStrategy,   multi: true },
+    { provide: NOTIFICATION_STRATEGIES, useExisting: SlackStrategy,  multi: true },
 
     // ── Registry ────────────────────────────────────────────────────────────
-    NotificationStrategyRegistry,
+    NotificationChannelRegistry,
   ],
-  exports: [NotificationsService, NotificationStrategyRegistry],
+  exports: [NotificationsService, NotificationChannelRegistry],
 })
 export class NotificationsModule {}

@@ -1,90 +1,44 @@
-import {
-  Body,
-  Controller,
-  HttpCode,
-  HttpStatus,
-  Logger,
-  Post,
-} from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Logger, Post } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { NotificationStrategyRegistry } from './strategy.registry';
+import { NotificationChannelRegistry } from './registry/notification-channel.registry';
 import { NotifyRequest, NotifyResponse } from './dto/notify.dto';
 
 /**
- * REST controller for direct notification delivery.
+ * POST /notify — dispatch a notification via the selected channel strategy.
  *
- * This endpoint complements POST /agent/smart-notification:
- *   - /agent/smart-notification  → AI picks subject, body, and channel.
- *   - /notifications/notify      → Caller provides all content; strategy delivers it.
+ * This controller has a single responsibility: validate input, delegate to the
+ * registry, and shape the response. It contains no channel-specific logic and
+ * never changes when a new channel is added — Open/Closed Principle in practice.
  *
- * Typical callers:
- *   1. The backend (Spring Boot) after an order-confirmed event where content is
- *      templated (not AI-generated) for cost and latency reasons.
- *   2. Admin tooling sending manual announcements with known content.
- *   3. The Claude agent's consumer: after generating content, it calls this endpoint
- *      to dispatch on the recommended channel.
- *
- * The controller itself has no channel-specific knowledge — it delegates entirely
- * to the NotificationStrategyRegistry. Adding a new channel requires:
- *   1. Implementing a new NotificationStrategy.
- *   2. Registering it in NotificationsModule.
- *   3. No changes here.
+ * @Controller('') — empty prefix so the route is exactly /notify.
+ * An alternative (@Controller('notifications') + @Post('notify')) would expose
+ * /notifications/notify, which does not match the spec.
  */
 @ApiTags('notifications')
-@Controller('notifications')
+@Controller('')
 export class NotificationsController {
   private readonly logger = new Logger(NotificationsController.name);
 
-  constructor(private readonly registry: NotificationStrategyRegistry) {}
+  constructor(private readonly registry: NotificationChannelRegistry) {}
 
-  /**
-   * Deliver a notification via the requested channel strategy.
-   *
-   * Returns 200 (not 201) because this is an action endpoint, not a resource-creation
-   * endpoint. The notification message is ephemeral; there is no persistent resource
-   * whose URI could be returned in a Location header.
-   */
   @Post('notify')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Send a notification via a specific channel',
+    summary: 'Send a notification via a channel strategy',
     description:
-      'Dispatches a notification through the registered strategy for the specified channel. ' +
-      'Supports: email (SMTP stub), push (FCM stub), sms (Twilio stub). ' +
-      'All transports are stubbed in the demo — logs output replaces network calls.',
+      'Resolves the registered strategy for the given channel and executes it. ' +
+      'Returns 400 if the channel is not registered. ' +
+      'Currently registered channels: email, sms, push, slack.',
   })
-  @ApiResponse({
-    status: 200,
-    description: 'Notification accepted by the channel strategy',
-    type: NotifyResponse,
-  })
-  @ApiResponse({ status: 400, description: 'Validation failed (missing fields, subject too long)' })
-  @ApiResponse({ status: 404, description: 'Channel strategy not registered' })
+  @ApiResponse({ status: 200, description: 'Notification dispatched', type: NotifyResponse })
+  @ApiResponse({ status: 400, description: 'Validation error or unknown channel' })
   async notify(@Body() request: NotifyRequest): Promise<NotifyResponse> {
-    this.logger.log(
-      `Dispatch requested — channel=${request.channel} recipient=${request.recipientId}`,
-    );
+    this.logger.log(`notify channel=${request.channel} userId=${request.userId}`);
 
-    // Registry throws NotFoundException for unknown channels — NestJS converts
-    // it to a 404 automatically via the built-in exception filter.
-    const strategy = this.registry.get(request.channel);
+    // Registry throws BadRequestException (400) for unknown channels.
+    const strategy = this.registry.resolve(request.channel);
+    await strategy.execute(request.userId, request.message);
 
-    const result = await strategy.send({
-      recipientId: request.recipientId,
-      subject: request.subject,
-      body: request.body,
-      metadata: request.metadata,
-    });
-
-    this.logger.log(
-      `Notification dispatched — channel=${result.channel} messageId=${result.messageId} status=${result.status}`,
-    );
-
-    return {
-      channel: result.channel,
-      messageId: result.messageId,
-      status: result.status,
-      dispatchedAt: result.dispatchedAt,
-    };
+    return { success: true, channel: request.channel, userId: request.userId };
   }
 }
