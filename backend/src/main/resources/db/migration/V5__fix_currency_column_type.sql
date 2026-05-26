@@ -10,3 +10,7 @@
 -- when the values have no trailing spaces, so no data is rewritten.
 ALTER TABLE orders
     ALTER COLUMN currency TYPE VARCHAR(3);
+
+-- products.currency has the same CHAR(3) definition — apply the same fix.
+ALTER TABLE products
+    ALTER COLUMN currency TYPE VARCHAR(3);
