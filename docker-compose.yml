@@ -67,9 +67,12 @@ services:
     ports:
       - "8085:8085"
     command: >
-      gcloud beta emulators pubsub start
-      --project=${GCP_PROJECT_ID:-local-project}
-      --host-port=0.0.0.0:8085
+      sh -c "
+        gcloud components install pubsub-emulator beta --quiet &&
+        gcloud beta emulators pubsub start
+          --project=${GCP_PROJECT_ID:-local-project}
+          --host-port=0.0.0.0:8085
+      "
     healthcheck:
       # The emulator exposes a plain HTTP endpoint; a 200 on / means it is ready.
       test: ["CMD-SHELL", "curl -sf http://localhost:8085 || exit 1"]
