@@ -1,0 +1,33 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "words": [
+    "nyxn",
+    "NYXN",
+    "ecommerce",
+    "personalised",
+    "personalisation",
+    "polyglot",
+    "anthropic",
+    "nestjs",
+    "pubsub",
+    "healthcheck",
+    "opencontainers",
+    "temurin",
+    "omit",
+    "workdir",
+    "entrypoint"
+  ],
+  "ignorePaths": [
+    "backend/.cspell.json",
+    "**/target/**",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/*.xml",
+    "**/*.yml",
+    "**/*.yaml",
+    "**/*.sql",
+    "**/*.properties",
+    "**/*.json"
+  ]
+}

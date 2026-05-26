@@ -1,0 +1,69 @@
+name: Notification Service CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'notification-service/**'
+      - '.github/workflows/notification-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'notification-service/**'
+      - '.github/workflows/notification-ci.yml'
+
+jobs:
+  build-and-test:
+    name: Build & Test (Node 20)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # Cache node_modules keyed on package-lock.json. Saved ~30 s per run.
+          cache: npm
+          cache-dependency-path: notification-service/package-lock.json
+
+      - name: Install dependencies
+        working-directory: notification-service
+        run: npm ci --silent
+
+      - name: Lint
+        working-directory: notification-service
+        run: npm run lint
+        continue-on-error: false
+
+      - name: Build (TypeScript compile)
+        working-directory: notification-service
+        # nest build compiles TypeScript to dist/ via tsc.
+        # A type error here means the code would crash at runtime — fail fast.
+        run: npm run build
+
+      - name: Run unit tests
+        working-directory: notification-service
+        env:
+          # Unit tests mock the Anthropic client. A real API key is not needed.
+          # Setting a placeholder prevents the service constructor from logging a warning.
+          ANTHROPIC_API_KEY: test-placeholder
+          GCP_PROJECT_ID: local-project
+        run: npm test -- --passWithNoTests
+
+      - name: Test coverage
+        working-directory: notification-service
+        env:
+          ANTHROPIC_API_KEY: test-placeholder
+          GCP_PROJECT_ID: local-project
+        run: npm run test:cov -- --passWithNoTests
+        continue-on-error: true
+        # Coverage is informational for now — does not gate the build.
+        # Remove continue-on-error once coverage thresholds are configured in jest config.
+
+      - name: Build Docker image (smoke test)
+        run: |
+          docker build -t nyxn-notification:ci notification-service/
+          echo "Docker image built successfully"
