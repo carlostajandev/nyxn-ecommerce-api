@@ -66,16 +66,14 @@ services:
     networks: [nyxn-net]
     ports:
       - "8085:8085"
-    # YAML list form avoids folded-scalar newline ambiguity.
-    # Components are installed on first run; subsequent runs use the cached layer.
+    # google/cloud-sdk:latest is installed via apt-get, so gcloud components install
+    # is disabled. Install the emulator package via apt-get instead.
     command:
       - bash
       - -c
-      - >-
-        gcloud components install pubsub-emulator beta --quiet &&
-        gcloud beta emulators pubsub start
-        --project=${GCP_PROJECT_ID:-local-project}
-        --host-port=0.0.0.0:8085
+      - |
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -q google-cloud-cli-pubsub-emulator &&
+        gcloud beta emulators pubsub start --project=${GCP_PROJECT_ID:-local-project} --host-port=0.0.0.0:8085
     healthcheck:
       # The emulator exposes a plain HTTP endpoint; a 200 on / means it is ready.
       test: ["CMD-SHELL", "curl -sf http://localhost:8085 || exit 1"]
