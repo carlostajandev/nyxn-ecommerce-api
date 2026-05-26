@@ -17,7 +17,6 @@ public class CreateProductUseCaseImpl implements CreateProductUseCase {
   private final ProductRepository productRepository;
   private final ProductEventPublisher eventPublisher;
 
-  // Inyección por constructor — obligatorio. Facilita test sin contexto Spring.
   public CreateProductUseCaseImpl(
       ProductRepository productRepository, ProductEventPublisher eventPublisher) {
     this.productRepository = productRepository;
@@ -39,9 +38,9 @@ public class CreateProductUseCaseImpl implements CreateProductUseCase {
 
     Product saved = productRepository.save(product);
 
-    // Publicación de evento fuera de transacción no es correcto aquí para garantía exactamente-una-
-    // vez. En producción usaría Outbox Pattern: el evento se persiste en la misma tx y un worker lo
-    // publica. Este trade-off se acepta para el scope de la prueba.
+    // Publishing the event outside the transaction introduces at-most-once delivery risk.
+    // The correct production pattern is Outbox: persist the event in the same transaction and
+    // publish it asynchronously from a worker. This trade-off is acceptable for this scope.
     eventPublisher.publishProductCreated(saved);
 
     return saved;

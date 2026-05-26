@@ -11,8 +11,10 @@ import org.springframework.cloud.gcp.pubsub.core.PubSubTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * Adaptador secundario: implementa ProductEventPublisher usando GCP Pub/Sub. El dominio no sabe que
- * GCP existe. Si manana migras a Kafka, solo cambias este adaptador, el dominio no se toca.
+ * Secondary adapter: publishes product domain events to GCP Pub/Sub.
+ *
+ * <p>The domain only knows the {@code ProductEventPublisher} port. Migrating from Pub/Sub to Kafka
+ * only requires replacing this adapter — no domain or use-case class changes.
  */
 @Component
 public class PubSubProductEventPublisher implements ProductEventPublisher {

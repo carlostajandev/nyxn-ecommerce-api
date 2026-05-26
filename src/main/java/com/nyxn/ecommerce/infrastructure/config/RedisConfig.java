@@ -18,15 +18,15 @@ import org.springframework.data.redis.serializer.RedisSerializationContext;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 /**
- * Configuracion de Redis Cache.
+ * Redis cache configuration.
  *
- * <p>TTL base: 45 minutos. Justificacion: los productos cambian como maximo 1 vez por hora en
- * operacion normal. 45 min da margen de seguridad sin impactar UX. Cacheamos por ID individual
- * (granularidad fina) para evitar invalidaciones masivas.
+ * <p><b>45-minute TTL:</b> products change at most once per hour under normal operations. 45
+ * minutes gives a safety margin without impacting user experience. Cache is keyed per product ID
+ * (fine-grained) to avoid mass invalidations on unrelated updates.
  *
- * <p>Jitter TTL: +/- 5 minutos aleatorios sobre el base. Esto mitiga el Cache Stampede — si N items
- * expiran exactamente al mismo tiempo bajo alta carga (Cyber-Day), todos los threads van a base de
- * datos simultaneamente. Con jitter, las expiraciones se distribuyen en el tiempo.
+ * <p><b>TTL jitter (±5 min):</b> mitigates cache stampede. Without jitter, under high load (Cyber
+ * Day), all catalog entries could expire simultaneously, causing a thundering herd of database
+ * queries. Randomizing expiry times spreads that spike with no extra infrastructure.
  */
 @Configuration
 @EnableCaching

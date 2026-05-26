@@ -8,8 +8,11 @@ import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 
 /**
- * Command object: datos de entrada para crear un producto. Lleva las anotaciones de Bean
- * Validation. No es el dominio — es el contrato HTTP desacoplado del modelo de negocio.
+ * Input command for product creation.
+ *
+ * <p>Bean Validation annotations live here to guard the HTTP contract (format, presence, range).
+ * Business-level rules (negative price, invalid stock) are enforced inside the domain value
+ * objects, not here.
  */
 public record CreateProductCommand(
     @NotBlank(message = "Name is required")

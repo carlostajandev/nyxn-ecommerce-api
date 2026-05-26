@@ -5,8 +5,11 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * DTO de respuesta: lo que el cliente ve. Nunca expone la entidad JPA ni el agregado de dominio.
- * Esto permite evolucionar el modelo de dominio sin romper el contrato HTTP.
+ * HTTP response payload for a product.
+ *
+ * <p>Keeping this separate from the domain aggregate means the internal model can evolve freely
+ * without breaking the API contract. It also prevents accidentally leaking internal fields (audit
+ * metadata, version counters) into the public response.
  */
 public record ProductResponse(
     UUID id,

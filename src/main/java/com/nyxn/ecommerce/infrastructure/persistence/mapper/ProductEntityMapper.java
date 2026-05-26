@@ -8,9 +8,11 @@ import com.nyxn.ecommerce.infrastructure.persistence.entity.ProductEntity;
 import org.springframework.stereotype.Component;
 
 /**
- * Mapper entre entidad JPA y agregado de dominio. Esta clase es el boundary exacto donde el mundo
- * de infraestructura habla con el dominio. El dominio no conoce ProductEntity; la entidad no conoce
- * value objects.
+ * Translates between the JPA entity and the domain aggregate.
+ *
+ * <p>This is the only class where {@code ProductEntity} and {@code Product} know about each other.
+ * Isolating that translation here ensures a schema change (renaming a column, adding a technical
+ * field) never pollutes the business model.
  */
 @Component
 public class ProductEntityMapper {

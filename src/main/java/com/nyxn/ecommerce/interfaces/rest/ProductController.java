@@ -31,9 +31,10 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 /**
- * Controlador de productos. Responsabilidad unica: recibir HTTP, delegar al puerto de entrada,
- * devolver HTTP. Cero logica de negocio aqui. El controlador no conoce los use cases concretos —
- * solo las interfaces de puerto.
+ * REST controller for the product catalog.
+ *
+ * <p>Single responsibility: translate HTTP into use-case commands and return the response. No
+ * business logic here. Depends on port interfaces, never on concrete use-case implementations.
  */
 @RestController
 @RequestMapping("/api/v1/products")

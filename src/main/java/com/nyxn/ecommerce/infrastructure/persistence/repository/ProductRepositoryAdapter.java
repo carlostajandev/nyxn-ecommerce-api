@@ -13,9 +13,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 /**
- * Adaptador secundario (driven): implementa el puerto ProductRepository del dominio usando JPA.
- * Elegido @Component sobre @Repository porque @Repository agrega traduccion de excepciones JPA que
- * ya Spring Data maneja. El dominio no sabe que esto existe.
+ * Secondary adapter: implements the {@code ProductRepository} domain port using JPA.
+ *
+ * <p>{@code @Component} used instead of {@code @Repository} because Spring Data already handles JPA
+ * exception translation automatically. Adding {@code @Repository} would apply it twice with no
+ * benefit.
+ *
+ * <p>{@code @CacheEvict} on {@code save} invalidates only the affected product entry. If a listing
+ * cache is added later, it must also be evicted here.
  */
 @Component
 public class ProductRepositoryAdapter implements ProductRepository {

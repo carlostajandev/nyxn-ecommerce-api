@@ -7,10 +7,14 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * Agregado raíz del dominio de producto. Sin anotaciones de framework — este objeto es 100% POJO.
- * Toda regla de negocio relacionada con el producto vive aquí o en sus value objects. Los setters
- * están ausentes por diseño: la mutación se hace a través de métodos de dominio con nombres
- * explícitos que expresan intención.
+ * Product aggregate root.
+ *
+ * <p>No framework annotations — this is a plain Java object that can be instantiated, tested, and
+ * reasoned about without starting a Spring context or opening a database connection.
+ *
+ * <p>No setters. State changes happen only through intention-revealing methods ({@code reprice},
+ * {@code decreaseStock}), making it impossible to leave the aggregate in an invalid state from the
+ * outside.
  */
 public class Product {
 
@@ -32,7 +36,7 @@ public class Product {
     this.createdAt = builder.createdAt != null ? builder.createdAt : Instant.now();
   }
 
-  // ─── domain behavior ───────────────────────────────────────────────────────
+  // ── domain behavior ──────────────────────────────────────────────────────────
 
   public void updateDetails(String name, String description, String category) {
     this.name = Objects.requireNonNull(name, "name is required");
@@ -52,11 +56,12 @@ public class Product {
     this.stock = this.stock.increase(quantity);
   }
 
+  /** Low-stock threshold is a business policy: fewer than 10 units triggers a restock alert. */
   public boolean isLowStock() {
     return stock.isLowerThan(10);
   }
 
-  // ─── accessors ─────────────────────────────────────────────────────────────
+  // ── accessors ────────────────────────────────────────────────────────────────
 
   public ProductId getId() {
     return id;
@@ -86,6 +91,7 @@ public class Product {
     return createdAt;
   }
 
+  // Aggregate equality is identity-based, not value-based.
   @Override
   public boolean equals(Object o) {
     if (this == o) return true;
@@ -98,7 +104,7 @@ public class Product {
     return Objects.hash(id);
   }
 
-  // ─── builder ───────────────────────────────────────────────────────────────
+  // ── builder ──────────────────────────────────────────────────────────────────
 
   public static Builder builder() {
     return new Builder();

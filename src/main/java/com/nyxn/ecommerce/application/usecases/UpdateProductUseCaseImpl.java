@@ -32,7 +32,8 @@ public class UpdateProductUseCaseImpl implements UpdateProductUseCase {
     product.updateDetails(command.name(), command.description(), command.category());
     product.reprice(Money.ofUSD(command.price()));
 
-    // Stock se actualiza mediante método de dominio que valida invariantes
+    // Route stock changes through domain methods so invariants (no negative stock) are enforced.
+    // A direct setter would bypass that protection.
     int currentQuantity = product.getStock().getQuantity();
     int delta = command.stock() - currentQuantity;
     if (delta > 0) {

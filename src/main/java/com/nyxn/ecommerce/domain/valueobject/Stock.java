@@ -4,8 +4,11 @@ import com.nyxn.ecommerce.domain.exceptions.InsufficientStockException;
 import java.util.Objects;
 
 /**
- * Value object para cantidad de stock. Encapsula la regla de negocio: el stock nunca puede ser
- * negativo. La validación vive aquí — no en un servicio de aplicación ni en un validator de Spring.
+ * Quantity available in inventory for a given product.
+ *
+ * <p>The invariant "stock >= 0" is enforced here, not in an application service. Keeping it in the
+ * value object ensures no entry point (event consumer, batch job, REST endpoint) can bypass the
+ * rule by constructing a negative Stock directly.
  */
 public final class Stock {
 

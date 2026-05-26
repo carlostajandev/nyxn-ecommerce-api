@@ -6,10 +6,12 @@ import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Component;
 
 /**
- * Mapper manual: domain → DTO de respuesta. Elegí mapper manual sobre MapStruct aquí porque la
- * lógica de extracción de value objects (Money, Stock, ProductId) no es trivial para el generador.
- * MapStruct se usa en el adaptador de persistencia (entity ↔ domain) donde el mapeo es campo a
- * campo.
+ * Maps the {@code Product} aggregate to the HTTP response DTO.
+ *
+ * <p>Manual mapping chosen over MapStruct because unwrapping value objects ({@code Money}, {@code
+ * Stock}, {@code ProductId}) requires custom logic that MapStruct cannot infer without verbose
+ * configuration. MapStruct is used in the persistence layer where mapping is field-to-field with no
+ * extra logic.
  */
 @Component
 public class ProductDtoMapper {

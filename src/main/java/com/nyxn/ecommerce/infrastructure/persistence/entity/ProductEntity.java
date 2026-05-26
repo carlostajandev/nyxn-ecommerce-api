@@ -10,11 +10,14 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Entidad JPA: adaptador de persistencia. Nunca sale de este paquete hacia el dominio ni las
- * interfaces. La separación entidad/dominio permite evolucionar el schema sin afectar el modelo de
- * negocio y viceversa.
+ * JPA entity for the {@code products} table. Stays inside the infrastructure layer.
  *
- * <p>@Version habilita optimistic locking para Seccion 3 — control de concurrencia en stock.
+ * <p>Separating the JPA entity from the {@code Product} aggregate lets the database schema and the
+ * domain model evolve independently. A schema migration never forces a domain class change.
+ *
+ * <p>{@code @Version} enables optimistic locking at the JPA level. On a concurrent write conflict,
+ * Hibernate throws {@code OptimisticLockException} before issuing the {@code UPDATE}, preventing
+ * silent data overwrites. See Section 3 for the full concurrency handling strategy.
  */
 @Entity
 @Table(name = "products")

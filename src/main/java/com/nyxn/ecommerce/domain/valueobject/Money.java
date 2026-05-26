@@ -6,10 +6,14 @@ import java.math.RoundingMode;
 import java.util.Objects;
 
 /**
- * Value object que representa dinero con precisión monetaria. Usando BigDecimal con HALF_EVEN
- * (banker's rounding) para evitar acumulación de errores en descuentos, impuestos y totales. Elegí
- * BigDecimal sobre double: double tiene errores de representación binaria inaceptables en contextos
- * financieros.
+ * Represents a monetary amount with exact decimal precision.
+ *
+ * <p>Using {@code BigDecimal} over {@code double} because binary floating-point cannot represent
+ * decimal fractions like 0.10 exactly. In accumulated operations (discounts, taxes, cart totals),
+ * that rounding error compounds. {@code BigDecimal} is deterministic.
+ *
+ * <p>{@code HALF_EVEN} (banker's rounding) avoids the systematic upward bias that {@code HALF_UP}
+ * introduces when applied repeatedly across many line items.
  */
 public final class Money {
 
@@ -64,6 +68,8 @@ public final class Money {
   public boolean equals(Object o) {
     if (this == o) return true;
     if (!(o instanceof Money other)) return false;
+    // compareTo instead of equals: BigDecimal.equals is scale-sensitive —
+    // new BigDecimal("2.0").equals(new BigDecimal("2.00")) returns false.
     return amount.compareTo(other.amount) == 0 && currency.equals(other.currency);
   }
 

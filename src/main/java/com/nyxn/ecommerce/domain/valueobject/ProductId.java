@@ -4,8 +4,10 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Value object: identidad de un producto. Inmutable por diseño — dos ProductId con el mismo UUID
- * son iguales. No expone el UUID raw fuera del dominio; el adaptador de persistencia lo mapea.
+ * Typed identifier for a product aggregate.
+ *
+ * <p>Wrapping the UUID prevents passing a {@code CustomerId} where a {@code ProductId} is expected.
+ * With raw UUIDs that mistake is invisible to the compiler and only surfaces at runtime.
  */
 public final class ProductId {
 

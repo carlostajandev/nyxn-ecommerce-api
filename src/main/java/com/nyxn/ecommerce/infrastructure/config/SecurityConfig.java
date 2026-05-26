@@ -8,7 +8,12 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 
-/** Security base config. Stateless JWT-ready. Swagger UI permitido en dev profile. */
+/**
+ * Base security configuration.
+ *
+ * <p>Stateless by design: no HTTP sessions. Every request must carry its own JWT. Swagger and the
+ * health actuator are open so monitoring and documentation work across all environments.
+ */
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {

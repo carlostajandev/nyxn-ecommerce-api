@@ -15,9 +15,11 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
- * Handler global de excepciones. Convierte excepciones de dominio a respuestas HTTP estandarizadas.
- * Solo captura excepciones especificas — nunca Exception generica. Cada handler tiene un contrato
- * HTTP claro. El formato de respuesta es uniforme: timestamp, status, message, path.
+ * Centralized exception handler.
+ *
+ * <p>Maps specific domain exceptions to semantic HTTP status codes. Never catches the generic
+ * {@code Exception}: doing so would mask unexpected failures behind a 4xx and make production
+ * incidents much harder to diagnose.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {

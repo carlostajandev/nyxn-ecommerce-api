@@ -7,8 +7,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 /**
- * Puerto de salida: el dominio declara qué necesita de persistencia. No sabe si es PostgreSQL,
- * MongoDB o un Map en memoria. La implementación concreta (JPA) vive en infrastructure/persistence.
+ * Outbound port: persistence contract imposed by the domain.
+ *
+ * <p>The domain declares what it needs; the infrastructure decides how to provide it. This
+ * interface has no mention of JPA, SQL, or any storage technology. Swapping PostgreSQL for MongoDB
+ * only requires a new adapter — no domain class changes.
  */
 public interface ProductRepository {
 
