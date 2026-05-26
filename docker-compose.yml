@@ -58,28 +58,31 @@ services:
   # The emulator is API-compatible with the real service — Spring Cloud GCP
   # switches between them via PUBSUB_EMULATOR_HOST environment variable.
   pubsub-emulator:
-    image: google/cloud-sdk:alpine
-    # google/cloud-sdk:alpine is amd64-only. On Apple Silicon (arm64) Docker
-    # runs it via Rosetta emulation — slower to start but functionally identical.
-    platform: linux/amd64
+    # google/cloud-sdk:latest is multi-arch (amd64 + arm64) and includes a JRE.
+    # The alpine variant is amd64-only and has no Java — the Pub/Sub emulator
+    # requires Java 7+ and fails at startup without it.
+    image: google/cloud-sdk:latest
     container_name: nyxn-pubsub-emulator
     networks: [nyxn-net]
     ports:
       - "8085:8085"
-    command: >
-      sh -c "
+    # YAML list form avoids folded-scalar newline ambiguity.
+    # Components are installed on first run; subsequent runs use the cached layer.
+    command:
+      - bash
+      - -c
+      - >-
         gcloud components install pubsub-emulator beta --quiet &&
         gcloud beta emulators pubsub start
-          --project=${GCP_PROJECT_ID:-local-project}
-          --host-port=0.0.0.0:8085
-      "
+        --project=${GCP_PROJECT_ID:-local-project}
+        --host-port=0.0.0.0:8085
     healthcheck:
       # The emulator exposes a plain HTTP endpoint; a 200 on / means it is ready.
       test: ["CMD-SHELL", "curl -sf http://localhost:8085 || exit 1"]
       interval: 10s
       timeout: 5s
-      start_period: 15s
-      retries: 5
+      start_period: 30s
+      retries: 8
 
   # ─── Pub/Sub topic & subscription init ──────────────────────────────────────
   # One-shot init container that creates topics and subscriptions after the
@@ -88,8 +91,7 @@ services:
   # attempts — after 5 consecutive nacks the emulator routes the message to the
   # DLQ, preventing a poison-pill message from blocking the subscription forever.
   pubsub-init:
-    image: google/cloud-sdk:alpine
-    platform: linux/amd64
+    image: google/cloud-sdk:latest
     container_name: nyxn-pubsub-init
     networks: [nyxn-net]
     depends_on:
@@ -97,31 +99,18 @@ services:
         condition: service_healthy
     environment:
       PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
-    command: >
-      sh -c "
+    command:
+      - bash
+      - -c
+      - |
         gcloud config set project ${GCP_PROJECT_ID:-local-project} &&
-
-        gcloud pubsub topics create product-events        --project=${GCP_PROJECT_ID:-local-project} &&
-        gcloud pubsub topics create product-events-dlq    --project=${GCP_PROJECT_ID:-local-project} &&
-        gcloud pubsub topics create order-events          --project=${GCP_PROJECT_ID:-local-project} &&
-        gcloud pubsub topics create order-events-dlq      --project=${GCP_PROJECT_ID:-local-project} &&
-
-        gcloud pubsub subscriptions create product-events-subscription
-          --topic=product-events
-          --dead-letter-topic=product-events-dlq
-          --max-delivery-attempts=5
-          --ack-deadline=30
-          --project=${GCP_PROJECT_ID:-local-project} &&
-
-        gcloud pubsub subscriptions create order-events-subscription
-          --topic=order-events
-          --dead-letter-topic=order-events-dlq
-          --max-delivery-attempts=5
-          --ack-deadline=30
-          --project=${GCP_PROJECT_ID:-local-project} &&
-
+        gcloud pubsub topics create product-events     --project=${GCP_PROJECT_ID:-local-project} &&
+        gcloud pubsub topics create product-events-dlq --project=${GCP_PROJECT_ID:-local-project} &&
+        gcloud pubsub topics create order-events       --project=${GCP_PROJECT_ID:-local-project} &&
+        gcloud pubsub topics create order-events-dlq   --project=${GCP_PROJECT_ID:-local-project} &&
+        gcloud pubsub subscriptions create product-events-subscription --topic=product-events --dead-letter-topic=product-events-dlq --max-delivery-attempts=5 --ack-deadline=30 --project=${GCP_PROJECT_ID:-local-project} &&
+        gcloud pubsub subscriptions create order-events-subscription   --topic=order-events   --dead-letter-topic=order-events-dlq   --max-delivery-attempts=5 --ack-deadline=30 --project=${GCP_PROJECT_ID:-local-project} &&
         echo 'Pub/Sub topics and subscriptions created.'
-      "
     # restart: on-failure so that if the init container fails (race with emulator),
     # Docker retries it without operator intervention.
     restart: on-failure
