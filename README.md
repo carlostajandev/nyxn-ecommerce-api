@@ -61,7 +61,7 @@ nyxn-ecommerce/
 | 1.2 | SOLID refactor of legacy OrderService | Java 21 records, design patterns |
 | 2 | Orders hexagonal module + Testcontainers | Spring Boot, PostgreSQL, Redis |
 | 3 | Cyber Day stock reservation | Redis Lua, optimistic locking, Spring Retry |
-| 4A | SQL analytics with window functions | PostgreSQL RANK(), LAG(), views |
+| 4A | SQL analytics with CTEs + window functions | PostgreSQL RANK(), LAG(), GENERATE_SERIES, views |
 | 4B | Redis enterprise cache patterns | Per-cache TTL, jitter, cache warming |
 | 5 | Docker + GCP Pub/Sub | Multi-stage Dockerfile, Pub/Sub emulator, subscriber |
 | 6A | NestJS notification microservice | NestJS, TypeScript, Pub/Sub, DLQ |
@@ -79,6 +79,10 @@ nyxn-ecommerce/
 ### 1. Start the full stack
 
 ```bash
+# Copy and configure environment variables first
+cp .env.example .env
+# Edit .env — set POSTGRES_PASSWORD and optionally ANTHROPIC_API_KEY
+
 docker-compose up -d
 ```
 
@@ -219,11 +223,27 @@ Redis acts as a fast gate: 70 requests for a product with 30 units are rejected 
 
 Topics and subscriptions are configured with `maxDeliveryAttempts=5`. After 5 consecutive nacks (from either the Spring Boot subscriber or the NestJS subscriber), GCP automatically routes the message to the dead-letter topic (`*-dlq`). This prevents poison-pill messages from blocking subscriptions indefinitely.
 
+### Notification Strategy Pattern (Section 6A)
+
+`POST /notifications/notify` dispatches through a registered `NotificationStrategy`:
+
+| Channel | Strategy class | Transport (stub in demo) |
+|---------|----------------|--------------------------|
+| `email` | `EmailNotificationStrategy` | SMTP (nodemailer / SendGrid) |
+| `push`  | `PushNotificationStrategy`  | FCM / APNs / OneSignal |
+| `sms`   | `SmsNotificationStrategy`   | Twilio / AWS SNS |
+
+**Adding a new channel** requires only two steps: implement `NotificationStrategy`, register it in `NotificationsModule` with `multi: true` under `NOTIFICATION_STRATEGIES`. The controller and registry require zero changes — Open/Closed Principle in practice.
+
+The `NotificationStrategyRegistry` uses NestJS multi-provider injection to receive all strategies as an array and builds a `Map<channel, strategy>` at construction time — O(1) lookup on every request.
+
 ### Claude Agent (Section 6B)
 
 `ClaudeAgentService` uses `claude-haiku-4-5` — chosen for speed and cost at notification scale. The system prompt constrains Claude to return a JSON object `{ subject, body, channel }` — structured output is more reliable for downstream consumers than parsing free-form prose.
 
-The endpoint `POST /agent/smart-notification` accepts a product event + optional audience context and returns AI-generated notification copy ready for delivery.
+Two complementary endpoints:
+- `POST /agent/smart-notification` — Claude picks subject, body, and channel based on event context.
+- `POST /notifications/notify` — Caller provides content; strategy delivers it. Used after Claude generates copy.
 
 ---
 

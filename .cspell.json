@@ -32,7 +32,9 @@
     "multipart",
     "GSM",
     "dispatchedAt",
-    "recipientId"
+    "recipientId",
+    "notif",
+    "cust"
   ],
   "ignorePaths": [
     "backend/.cspell.json",
