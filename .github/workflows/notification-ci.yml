@@ -11,6 +11,8 @@ on:
     paths:
       - 'notification-service/**'
       - '.github/workflows/notification-ci.yml'
+  # Allows manual run from the GitHub Actions UI (Actions → Notification Service CI → Run workflow)
+  workflow_dispatch:
 
 env:
   IMAGE: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/nyxn/notification

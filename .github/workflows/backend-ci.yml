@@ -13,6 +13,8 @@ on:
     paths:
       - 'backend/**'
       - '.github/workflows/backend-ci.yml'
+  # Allows manual run from the GitHub Actions UI (Actions → Backend CI → Run workflow)
+  workflow_dispatch:
 
 # ─── Environment ─────────────────────────────────────────────────────────────
 # Artifact Registry image path: region-docker.pkg.dev/PROJECT/REPO/IMAGE:TAG
