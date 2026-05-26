@@ -52,6 +52,7 @@ nyxn:
   pubsub:
     topics:
       product-events: ${PUBSUB_TOPIC_PRODUCT_EVENTS:product-events}
+      order-events: ${PUBSUB_TOPIC_ORDER_EVENTS:order-events}
 
 springdoc:
   api-docs:
