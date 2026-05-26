@@ -91,8 +91,8 @@ SELECT
     COUNT(*)                                                AS order_count,
     SUM(amount)                                             AS lifetime_value,
     AVG(amount)                                             AS avg_order_value,
-    MIN(created_at)                                         AS first_order_at,
-    MAX(created_at)                                         AS last_order_at,
+    MIN(o.created_at)                                       AS first_order_at,
+    MAX(o.created_at)                                       AS last_order_at,
     STRING_AGG(DISTINCT category, ', ' ORDER BY category)  AS categories_purchased
 FROM orders o
 JOIN products p ON p.id = o.product_id

@@ -152,10 +152,13 @@ WITH confirmed_orders AS (
     -- Pre-join products so the aggregation below is against a single, filtered set.
     -- Isolating the filter in a CTE also makes it trivial to add further filters
     -- (e.g. date range) without touching the aggregation logic.
+    -- Note: alias o.created_at to order_placed_at — both orders and products have
+    -- a created_at column. PostgreSQL 12+ inlines CTEs by default, so an
+    -- unqualified created_at in the outer SELECT would be ambiguous after inlining.
     SELECT
         o.customer_id,
         o.amount,
-        o.created_at,
+        o.created_at AS order_placed_at,
         p.category
     FROM  orders o
     JOIN  products p ON p.id = o.product_id
@@ -166,8 +169,8 @@ SELECT
     COUNT(*)                                                AS order_count,
     SUM(amount)                                             AS lifetime_value,
     AVG(amount)                                             AS avg_order_value,
-    MIN(created_at)                                         AS first_order_at,
-    MAX(created_at)                                         AS last_order_at,
+    MIN(order_placed_at)                                    AS first_order_at,
+    MAX(order_placed_at)                                    AS last_order_at,
     STRING_AGG(DISTINCT category, ', ' ORDER BY category)  AS categories_purchased
 FROM confirmed_orders
 GROUP BY customer_id;
