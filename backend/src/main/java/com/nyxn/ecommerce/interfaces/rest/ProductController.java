@@ -10,6 +10,8 @@ import com.nyxn.ecommerce.domain.ports.in.GetProductUseCase;
 import com.nyxn.ecommerce.domain.ports.in.UpdateProductUseCase;
 import com.nyxn.ecommerce.domain.valueobject.ProductId;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -60,7 +62,29 @@ public class ProductController {
     this.mapper = mapper;
   }
 
-  @Operation(summary = "Create a product", description = "Creates a new product in the catalog")
+  @Operation(
+      summary = "Create a product",
+      description = "Creates a new product in the catalog",
+      requestBody =
+          @io.swagger.v3.oas.annotations.parameters.RequestBody(
+              required = true,
+              content =
+                  @Content(
+                      mediaType = "application/json",
+                      examples =
+                          @ExampleObject(
+                              name = "Electronics product",
+                              summary = "A typical electronics product",
+                              value =
+                                  """
+                                  {
+                                    "name": "Laptop Pro 15",
+                                    "description": "High-performance laptop with 16GB RAM and 512GB SSD",
+                                    "price": 1299.99,
+                                    "stock": 50,
+                                    "category": "ELECTRONICS"
+                                  }
+                                  """))))
   @ApiResponses({
     @ApiResponse(responseCode = "201", description = "Product created"),
     @ApiResponse(responseCode = "400", description = "Invalid request body"),
