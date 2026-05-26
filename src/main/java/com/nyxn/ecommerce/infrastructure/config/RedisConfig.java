@@ -1,0 +1,66 @@
+package com.nyxn.ecommerce.infrastructure.config;
+
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import java.time.Duration;
+import java.util.Random;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+/**
+ * Redis cache configuration.
+ *
+ * <p><b>45-minute TTL:</b> products change at most once per hour under normal operations. 45
+ * minutes gives a safety margin without impacting user experience. Cache is keyed per product ID
+ * (fine-grained) to avoid mass invalidations on unrelated updates.
+ *
+ * <p><b>TTL jitter (±5 min):</b> mitigates cache stampede. Without jitter, under high load (Cyber
+ * Day), all catalog entries could expire simultaneously, causing a thundering herd of database
+ * queries. Randomizing expiry times spreads that spike with no extra infrastructure.
+ */
+@Configuration
+@EnableCaching
+public class RedisConfig {
+
+  private static final Duration BASE_TTL = Duration.ofMinutes(45);
+  private static final int JITTER_SECONDS = 300; // +/- 5 minutos
+
+  @Bean
+  public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
+    ObjectMapper objectMapper =
+        new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .activateDefaultTyping(
+                LaissezFaireSubTypeValidator.instance,
+                ObjectMapper.DefaultTyping.NON_FINAL,
+                JsonTypeInfo.As.PROPERTY);
+
+    GenericJackson2JsonRedisSerializer serializer =
+        new GenericJackson2JsonRedisSerializer(objectMapper);
+
+    Duration ttlWithJitter =
+        BASE_TTL.plusSeconds(new Random().nextInt(JITTER_SECONDS * 2) - JITTER_SECONDS);
+
+    RedisCacheConfiguration config =
+        RedisCacheConfiguration.defaultCacheConfig()
+            .entryTtl(ttlWithJitter)
+            .serializeKeysWith(
+                RedisSerializationContext.SerializationPair.fromSerializer(
+                    new StringRedisSerializer()))
+            .serializeValuesWith(
+                RedisSerializationContext.SerializationPair.fromSerializer(serializer))
+            .disableCachingNullValues();
+
+    return RedisCacheManager.builder(connectionFactory).cacheDefaults(config).build();
+  }
+}
