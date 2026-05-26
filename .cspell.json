@@ -45,7 +45,16 @@
     "behaviours",
     "fulfil",
     "fulfilment",
-    "idempotent"
+    "idempotent",
+    "DECRBY",
+    "INCRBY",
+    "SETNX",
+    "tonumber",
+    "EVAL",
+    "decrementable",
+    "Retryable",
+    "retryable",
+    "backoff"
   ],
   "ignorePaths": [
     "target/**",

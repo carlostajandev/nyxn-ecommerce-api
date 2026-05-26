@@ -12,6 +12,7 @@ import com.nyxn.ecommerce.domain.exceptions.InvalidMoneyException;
 import com.nyxn.ecommerce.domain.model.Product;
 import com.nyxn.ecommerce.domain.ports.out.ProductEventPublisher;
 import com.nyxn.ecommerce.domain.ports.out.ProductRepository;
+import com.nyxn.ecommerce.domain.ports.out.StockCachePort;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,6 +25,9 @@ class CreateProductUseCaseTest {
 
   @Mock private ProductRepository productRepository;
   @Mock private ProductEventPublisher eventPublisher;
+
+  @Mock
+  private StockCachePort stockCachePort; // injected by @InjectMocks into CreateProductUseCaseImpl
 
   @InjectMocks private CreateProductUseCaseImpl createProductUseCase;
 
