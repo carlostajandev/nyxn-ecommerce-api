@@ -114,10 +114,10 @@ services:
     # Docker retries it without operator intervention.
     restart: on-failure
 
-  # ─── Application ──────────────────────────────────────────────────────────
+  # ─── Spring Boot API (backend/) ──────────────────────────────────────────
   api:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
     container_name: nyxn-api
     networks: [nyxn-net]
@@ -129,8 +129,6 @@ services:
       DB_PASSWORD: nyxn
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      # Tells Spring Cloud GCP to route all Pub/Sub calls to the emulator instead
-      # of the real GCP endpoint. No credentials needed when this variable is set.
       PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
       SPRING_CLOUD_GCP_PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
       SPRING_CLOUD_GCP_PROJECT_ID: local-project
@@ -140,6 +138,26 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      pubsub-emulator:
+        condition: service_healthy
+
+  # ─── NestJS Notification Service (notification-service/) ─────────────────
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    container_name: nyxn-notification
+    networks: [nyxn-net]
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      GCP_PROJECT_ID: local-project
+      PUBSUB_SUBSCRIPTION_PRODUCT_EVENTS: product-events-subscription
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
       pubsub-emulator:
         condition: service_healthy
 

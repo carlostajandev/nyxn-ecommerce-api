@@ -1,11 +1,23 @@
+# ─── Java / Maven (backend/) ──────────────────────────────────────────────────
 target/
 *.class
 *.jar
 *.war
 .idea/
 *.iml
+
+# ─── Node.js (notification-service/) ─────────────────────────────────────────
+node_modules/
+dist/
+.npm
+
+# ─── OS / IDE ─────────────────────────────────────────────────────────────────
 .DS_Store
-.env
 *.log
+
+# ─── Secrets (never commit) ───────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
 application-local.yml
 application-secrets.yml
