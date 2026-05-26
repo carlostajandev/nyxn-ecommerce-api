@@ -9,10 +9,15 @@ spring:
     gcp:
       project-id: ${SPRING_CLOUD_GCP_PROJECT_ID:local-project}
       pubsub:
-        # When PUBSUB_EMULATOR_HOST is set, the Spring Cloud GCP auto-configuration
-        # redirects all Pub/Sub calls to the emulator automatically.
-        # No GCP service account key is needed in local / CI environments.
+        # When PUBSUB_EMULATOR_HOST is set, Spring Cloud GCP auto-configuration
+        # redirects all Pub/Sub calls to the emulator — no service account needed.
         emulator-host: ${SPRING_CLOUD_GCP_PUBSUB_EMULATOR_HOST:}
+      secretmanager:
+        # Disable Secret Manager entirely in docker/local profiles.
+        # The GcpSecretManagerAutoConfiguration tries to create a client at startup
+        # and fails with "default credentials not found" when no ADC is configured.
+        # Production secrets are injected via Cloud Run --set-secrets instead.
+        enabled: false
 
 logging:
   level:
