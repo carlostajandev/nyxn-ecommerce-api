@@ -89,34 +89,38 @@ services:
   # attempts — after 5 consecutive nacks the emulator routes the message to the
   # DLQ, preventing a poison-pill message from blocking the subscription forever.
   pubsub-init:
-    image: google/cloud-sdk:latest
+    # curlimages/curl is a minimal multi-arch image (amd64 + arm64) with curl.
+    # Using curl against the emulator's REST API is more reliable than gcloud
+    # pubsub commands — recent gcloud versions ignore PUBSUB_EMULATOR_HOST and
+    # route topic/subscription creation to the real GCP API instead.
+    image: curlimages/curl:latest
     container_name: nyxn-pubsub-init
     networks: [nyxn-net]
     depends_on:
       pubsub-emulator:
         condition: service_healthy
-    environment:
-      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
-      # Disable GCP auth entirely — the emulator does not require credentials.
-      # Without this, gcloud 569+ exits with "no active account" even when
-      # PUBSUB_EMULATOR_HOST is set.
-      CLOUDSDK_AUTH_DISABLE_CREDENTIALS: "true"
-      CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
     command:
-      - bash
+      - sh
       - -c
       - |
-        gcloud config set project ${GCP_PROJECT_ID:-local-project} &&
-        gcloud config set auth/disable_credentials true &&
-        gcloud pubsub topics create product-events     --project=${GCP_PROJECT_ID:-local-project} &&
-        gcloud pubsub topics create product-events-dlq --project=${GCP_PROJECT_ID:-local-project} &&
-        gcloud pubsub topics create order-events       --project=${GCP_PROJECT_ID:-local-project} &&
-        gcloud pubsub topics create order-events-dlq   --project=${GCP_PROJECT_ID:-local-project} &&
-        gcloud pubsub subscriptions create product-events-subscription --topic=product-events --dead-letter-topic=product-events-dlq --max-delivery-attempts=5 --ack-deadline=30 --project=${GCP_PROJECT_ID:-local-project} &&
-        gcloud pubsub subscriptions create order-events-subscription   --topic=order-events   --dead-letter-topic=order-events-dlq   --max-delivery-attempts=5 --ack-deadline=30 --project=${GCP_PROJECT_ID:-local-project} &&
-        echo 'Pub/Sub topics and subscriptions created.'
-    # restart: on-failure so that if the init container fails (race with emulator),
-    # Docker retries it without operator intervention.
+        PROJECT=${GCP_PROJECT_ID:-local-project}
+        BASE="http://pubsub-emulator:8085/v1/projects/$${PROJECT}"
+
+        echo "Creating topics..."
+        curl -sf -X PUT "$${BASE}/topics/product-events"     -H "Content-Type: application/json" -d '{}' &&
+        curl -sf -X PUT "$${BASE}/topics/product-events-dlq" -H "Content-Type: application/json" -d '{}' &&
+        curl -sf -X PUT "$${BASE}/topics/order-events"       -H "Content-Type: application/json" -d '{}' &&
+        curl -sf -X PUT "$${BASE}/topics/order-events-dlq"   -H "Content-Type: application/json" -d '{}' &&
+
+        echo "Creating subscriptions..."
+        curl -sf -X PUT "$${BASE}/subscriptions/product-events-subscription" \
+          -H "Content-Type: application/json" \
+          -d "{\"topic\":\"projects/$${PROJECT}/topics/product-events\",\"ackDeadlineSeconds\":30,\"deadLetterPolicy\":{\"deadLetterTopic\":\"projects/$${PROJECT}/topics/product-events-dlq\",\"maxDeliveryAttempts\":5}}" &&
+        curl -sf -X PUT "$${BASE}/subscriptions/order-events-subscription" \
+          -H "Content-Type: application/json" \
+          -d "{\"topic\":\"projects/$${PROJECT}/topics/order-events\",\"ackDeadlineSeconds\":30,\"deadLetterPolicy\":{\"deadLetterTopic\":\"projects/$${PROJECT}/topics/order-events-dlq\",\"maxDeliveryAttempts\":5}}" &&
+
+        echo "Pub/Sub topics and subscriptions created."
     restart: on-failure
 
   # ─── Spring Boot API (backend/) ──────────────────────────────────────────
