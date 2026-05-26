@@ -7,6 +7,7 @@ import com.nyxn.ecommerce.domain.valueobject.ProductId;
 import com.nyxn.ecommerce.infrastructure.stock.ProductStockUpdater;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 
 /**
@@ -66,7 +67,21 @@ public class StockReservationService implements ReserveStockUseCase {
     this.productStockUpdater = productStockUpdater;
   }
 
+  /**
+   * Reserves stock and evicts the low-stock analytics cache.
+   *
+   * <p>{@code @CacheEvict} fires after this method returns successfully — meaning after {@link
+   * ProductStockUpdater#decreaseStock} has committed its transaction. The eviction is
+   * correct-by-default: a successful reservation may push a product below the low-stock threshold
+   * (or to zero), so the cached alert list is immediately stale and must be discarded.
+   *
+   * <p>Using {@code allEntries = true} because the analytics cache holds a single entry covering
+   * all low-stock products (a list, not per-product entries). There is no per-product key to target
+   * — evicting the whole cache is the only option. The next read will repopulate it via the
+   * underlying view query and re-cache the fresh result.
+   */
   @Override
+  @CacheEvict(value = "analytics:low-stock", allEntries = true)
   public void reserve(ProductId productId, int quantity) {
     if (quantity <= 0) {
       throw new IllegalArgumentException("Reservation quantity must be positive, got: " + quantity);
@@ -89,7 +104,15 @@ public class StockReservationService implements ReserveStockUseCase {
     }
   }
 
+  /**
+   * Releases reserved stock and evicts the low-stock analytics cache.
+   *
+   * <p>A stock release increases available units. A product that was below the low-stock threshold
+   * (or at zero) may no longer qualify after the release — the cached alert list is stale. Evicting
+   * here ensures the next dashboard read reflects the updated stock levels.
+   */
   @Override
+  @CacheEvict(value = "analytics:low-stock", allEntries = true)
   public void release(ProductId productId, int quantity) {
     if (quantity <= 0) {
       throw new IllegalArgumentException("Release quantity must be positive, got: " + quantity);

@@ -1,6 +1,7 @@
 package com.nyxn.ecommerce.infrastructure.analytics;
 
 import com.nyxn.ecommerce.domain.ports.in.analytics.ProductAnalyticsUseCase;
+import com.nyxn.ecommerce.infrastructure.config.RedisConfig;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.math.BigDecimal;
@@ -36,7 +37,7 @@ public class JpaProductAnalyticsAdapter implements ProductAnalyticsUseCase {
   @PersistenceContext private EntityManager em;
 
   @Override
-  @Cacheable(value = "analytics:top-products", unless = "#result.isEmpty()")
+  @Cacheable(value = RedisConfig.CACHE_ANALYTICS_TOP, unless = "#result.isEmpty()")
   public List<TopProductDto> getTopProductsByCategory() {
     // The view already filters to rank <= 5; this query just reads all rows from it.
     // Native SQL because the view uses a window function subquery not expressible in JPQL.
@@ -65,7 +66,7 @@ public class JpaProductAnalyticsAdapter implements ProductAnalyticsUseCase {
   }
 
   @Override
-  @Cacheable(value = "analytics:revenue-trend", unless = "#result.isEmpty()")
+  @Cacheable(value = RedisConfig.CACHE_ANALYTICS_REVENUE, unless = "#result.isEmpty()")
   public List<MonthlyRevenueDto> getMonthlyRevenueTrend() {
     @SuppressWarnings("unchecked")
     List<Object[]> rows =
@@ -83,7 +84,7 @@ public class JpaProductAnalyticsAdapter implements ProductAnalyticsUseCase {
   }
 
   @Override
-  @Cacheable(value = "analytics:low-stock", unless = "#result.isEmpty()")
+  @Cacheable(value = RedisConfig.CACHE_ANALYTICS_LOW_STOCK, unless = "#result.isEmpty()")
   public List<LowStockAlertDto> getLowStockAlerts() {
     @SuppressWarnings("unchecked")
     List<Object[]> rows =

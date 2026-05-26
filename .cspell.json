@@ -54,7 +54,14 @@
     "decrementable",
     "Retryable",
     "retryable",
-    "backoff"
+    "backoff",
+    "amortises",
+    "amortise",
+    "Centralising",
+    "centralising",
+    "deserialisation",
+    "serialisation",
+    "polyglot"
   ],
   "ignorePaths": [
     "target/**",
