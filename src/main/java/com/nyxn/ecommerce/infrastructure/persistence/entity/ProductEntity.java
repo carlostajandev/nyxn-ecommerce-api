@@ -48,12 +48,14 @@ public class ProductEntity {
   @Column(name = "created_at", nullable = false, updatable = false)
   private Instant createdAt;
 
-  // Optimistic locking — incrementado por JPA en cada UPDATE
+  // Incremented by Hibernate on every UPDATE — drives optimistic locking conflict detection.
   @Version
   @Column(name = "version")
   private Long version;
 
-  protected ProductEntity() {}
+  // JPA requires a no-arg constructor. Public so mappers in other packages can instantiate
+  // this class directly without resorting to reflection.
+  public ProductEntity() {}
 
   public UUID getId() {
     return id;
