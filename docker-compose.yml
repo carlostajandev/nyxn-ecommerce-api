@@ -9,6 +9,11 @@ networks:
   nyxn-net:
     driver: bridge
 
+# ─── Variables ─────────────────────────────────────────────────────────────────
+# docker-compose automatically reads .env from the same directory for variable
+# interpolation. Copy .env.example to .env and fill in the values before running.
+# Never commit .env to version control — it is in .gitignore.
+
 services:
 
   # ─── PostgreSQL ─────────────────────────────────────────────────────────────
@@ -17,15 +22,15 @@ services:
     container_name: nyxn-postgres
     networks: [nyxn-net]
     environment:
-      POSTGRES_DB: nyxn_ecommerce
-      POSTGRES_USER: nyxn
-      POSTGRES_PASSWORD: nyxn
+      POSTGRES_DB: ${POSTGRES_DB:-nyxn_ecommerce}
+      POSTGRES_USER: ${POSTGRES_USER:-nyxn}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nyxn -d nyxn_ecommerce"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nyxn} -d ${POSTGRES_DB:-nyxn_ecommerce}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -60,7 +65,7 @@ services:
       - "8085:8085"
     command: >
       gcloud beta emulators pubsub start
-      --project=local-project
+      --project=${GCP_PROJECT_ID:-local-project}
       --host-port=0.0.0.0:8085
     healthcheck:
       # The emulator exposes a plain HTTP endpoint; a 200 on / means it is ready.
@@ -87,26 +92,26 @@ services:
       PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
     command: >
       sh -c "
-        gcloud config set project local-project &&
+        gcloud config set project ${GCP_PROJECT_ID:-local-project} &&
 
-        gcloud pubsub topics create product-events        --project=local-project &&
-        gcloud pubsub topics create product-events-dlq    --project=local-project &&
-        gcloud pubsub topics create order-events          --project=local-project &&
-        gcloud pubsub topics create order-events-dlq      --project=local-project &&
+        gcloud pubsub topics create product-events        --project=${GCP_PROJECT_ID:-local-project} &&
+        gcloud pubsub topics create product-events-dlq    --project=${GCP_PROJECT_ID:-local-project} &&
+        gcloud pubsub topics create order-events          --project=${GCP_PROJECT_ID:-local-project} &&
+        gcloud pubsub topics create order-events-dlq      --project=${GCP_PROJECT_ID:-local-project} &&
 
         gcloud pubsub subscriptions create product-events-subscription
           --topic=product-events
           --dead-letter-topic=product-events-dlq
           --max-delivery-attempts=5
           --ack-deadline=30
-          --project=local-project &&
+          --project=${GCP_PROJECT_ID:-local-project} &&
 
         gcloud pubsub subscriptions create order-events-subscription
           --topic=order-events
           --dead-letter-topic=order-events-dlq
           --max-delivery-attempts=5
           --ack-deadline=30
-          --project=local-project &&
+          --project=${GCP_PROJECT_ID:-local-project} &&
 
         echo 'Pub/Sub topics and subscriptions created.'
       "
@@ -124,22 +129,25 @@ services:
     ports:
       - "8080:8080"
     environment:
-      DB_URL: jdbc:postgresql://postgres:5432/nyxn_ecommerce
-      DB_USERNAME: nyxn
-      DB_PASSWORD: nyxn
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-nyxn_ecommerce}
+      DB_USERNAME: ${POSTGRES_USER:-nyxn}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
       SPRING_CLOUD_GCP_PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
-      SPRING_CLOUD_GCP_PROJECT_ID: local-project
+      SPRING_CLOUD_GCP_PROJECT_ID: ${GCP_PROJECT_ID:-local-project}
       SPRING_PROFILES_ACTIVE: docker
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      pubsub-emulator:
-        condition: service_healthy
+      # pubsub-init is not strictly required by the backend (Spring Cloud GCP
+      # retries subscription/topic access), but waiting avoids noisy error logs
+      # during the first few seconds of startup.
+      pubsub-init:
+        condition: service_completed_successfully
 
   # ─── NestJS Notification Service (notification-service/) ─────────────────
   notification-service:
@@ -154,12 +162,17 @@ services:
       NODE_ENV: production
       PORT: 3000
       PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
-      GCP_PROJECT_ID: local-project
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-local-project}
       PUBSUB_SUBSCRIPTION_PRODUCT_EVENTS: product-events-subscription
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:
       pubsub-emulator:
         condition: service_healthy
+      # Wait until the init container has created the topics and subscriptions.
+      # Without this, NestJS would try to attach to product-events-subscription
+      # before it exists and receive a gRPC NOT_FOUND error on startup.
+      pubsub-init:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:
