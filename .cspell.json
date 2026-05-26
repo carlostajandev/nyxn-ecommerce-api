@@ -36,7 +36,16 @@
     "oauth",
     "jwt",
     "cors",
-    "csrf"
+    "csrf",
+    "Liskov",
+    "liskov",
+    "serialised",
+    "serialises",
+    "behaviour",
+    "behaviours",
+    "fulfil",
+    "fulfilment",
+    "idempotent"
   ],
   "ignorePaths": [
     "target/**",
