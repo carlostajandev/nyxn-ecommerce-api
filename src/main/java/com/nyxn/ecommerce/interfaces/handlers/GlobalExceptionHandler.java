@@ -4,6 +4,8 @@ import com.nyxn.ecommerce.domain.exceptions.InsufficientStockException;
 import com.nyxn.ecommerce.domain.exceptions.InvalidMoneyException;
 import com.nyxn.ecommerce.domain.exceptions.ProductNotFoundException;
 import com.nyxn.ecommerce.domain.exceptions.StockConflictException;
+import com.nyxn.ecommerce.solid.orders.application.InsufficientOrderStockException;
+import com.nyxn.ecommerce.solid.orders.domain.OrderNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import java.util.stream.Collectors;
@@ -29,6 +31,22 @@ public class GlobalExceptionHandler {
       ProductNotFoundException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.NOT_FOUND)
         .body(ErrorResponse.of(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI()));
+  }
+
+  @ExceptionHandler(OrderNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleOrderNotFound(
+      OrderNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(ErrorResponse.of(HttpStatus.NOT_FOUND, ex.getMessage(), request.getRequestURI()));
+  }
+
+  @ExceptionHandler(InsufficientOrderStockException.class)
+  public ResponseEntity<ErrorResponse> handleInsufficientOrderStock(
+      InsufficientOrderStockException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+        .body(
+            ErrorResponse.of(
+                HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), request.getRequestURI()));
   }
 
   @ExceptionHandler(InsufficientStockException.class)

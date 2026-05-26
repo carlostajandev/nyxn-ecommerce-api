@@ -2,6 +2,7 @@ package com.nyxn.ecommerce.solid.orders.domain;
 
 import com.nyxn.ecommerce.domain.valueobject.Money;
 import com.nyxn.ecommerce.domain.valueobject.ProductId;
+import java.time.Instant;
 import java.util.Objects;
 
 /**
@@ -11,9 +12,10 @@ import java.util.Objects;
  * must be testable with plain {@code new} — if it requires a DI container to instantiate, the
  * architecture has leaked infrastructure concerns into the core.
  *
- * <p>State transitions are expressed as intention-revealing methods ({@link #confirmPayment()},
- * {@link #reserveStock()}) rather than a generic {@code setStatus()} setter. This makes the
- * aggregate's allowed life-cycle explicit and prevents callers from setting arbitrary states.
+ * <p>State transitions are expressed as intention-revealing methods ({@link #confirmPayment},
+ * {@link #reserveStock}, {@link #confirm}) rather than a generic {@code setStatus()} setter. This
+ * encodes the valid life-cycle inside the aggregate and prevents callers from jumping to arbitrary
+ * states.
  */
 public class Order {
 
@@ -22,6 +24,7 @@ public class Order {
   private final ProductId productId;
   private final int quantity;
   private final Money total;
+  private final Instant createdAt;
   private OrderStatus status;
   private String paymentReference;
 
@@ -29,18 +32,23 @@ public class Order {
     this.id = Objects.requireNonNull(builder.id, "id is required");
     this.customerId = Objects.requireNonNull(builder.customerId, "customerId is required");
     this.productId = Objects.requireNonNull(builder.productId, "productId is required");
-    this.quantity = builder.quantity;
     this.total = Objects.requireNonNull(builder.total, "total is required");
+    if (builder.quantity < 1) {
+      throw new IllegalArgumentException("quantity must be at least 1");
+    }
+    this.quantity = builder.quantity;
+    // Allow the persistence mapper to restore a historical timestamp; default to now on creation.
+    this.createdAt = builder.createdAt != null ? builder.createdAt : Instant.now();
     this.status = OrderStatus.PENDING;
   }
 
   // ─── State transition methods ───────────────────────────────────────────────
 
   /**
-   * Records that payment was captured successfully.
+   * Records a successful payment capture.
    *
-   * <p>Only valid from PENDING — any other transition is a bug and should be loud. Storing the
-   * payment reference on the aggregate keeps it queryable without joining to a payments table.
+   * <p>Only valid from PENDING. Storing the reference on the aggregate keeps it queryable without
+   * joining a payments table and makes the aggregate self-describing for audits.
    */
   public void confirmPayment(String paymentReference) {
     if (this.status != OrderStatus.PENDING) {
@@ -51,10 +59,10 @@ public class Order {
   }
 
   /**
-   * Records that inventory has been reserved for this order.
+   * Records that inventory has been reserved.
    *
-   * <p>Only valid after payment is confirmed — stock should never be reserved without a payment
-   * commitment, to avoid holding inventory for orders that will never settle.
+   * <p>Only valid after payment is confirmed — stock must never be held without a payment
+   * commitment, to avoid blocking inventory for orders that will never settle.
    */
   public void reserveStock() {
     if (this.status != OrderStatus.PAYMENT_CONFIRMED) {
@@ -64,7 +72,7 @@ public class Order {
     this.status = OrderStatus.STOCK_RESERVED;
   }
 
-  /** Marks the order as fully confirmed — all steps succeeded. */
+  /** Marks the order as fully confirmed — all placement steps succeeded. */
   public void confirm() {
     if (this.status != OrderStatus.STOCK_RESERVED) {
       throw new IllegalStateException(
@@ -73,7 +81,9 @@ public class Order {
     this.status = OrderStatus.CONFIRMED;
   }
 
-  /** Marks the order as failed. Accepts a reason for observability. */
+  /**
+   * Marks the order as failed. The reason is for observability; domain state tracks the outcome.
+   */
   public void fail(String reason) {
     this.status = OrderStatus.FAILED;
   }
@@ -100,6 +110,10 @@ public class Order {
     return total;
   }
 
+  public Instant getCreatedAt() {
+    return createdAt;
+  }
+
   public OrderStatus getStatus() {
     return status;
   }
@@ -120,6 +134,7 @@ public class Order {
     private ProductId productId;
     private int quantity;
     private Money total;
+    private Instant createdAt;
 
     public Builder id(OrderId id) {
       this.id = id;
@@ -143,6 +158,12 @@ public class Order {
 
     public Builder total(Money total) {
       this.total = total;
+      return this;
+    }
+
+    /** Used by the persistence mapper to restore the original creation timestamp from the DB. */
+    public Builder createdAt(Instant createdAt) {
+      this.createdAt = createdAt;
       return this;
     }
 
