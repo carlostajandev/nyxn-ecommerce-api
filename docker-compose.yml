@@ -1,9 +1,21 @@
 version: '3.9'
 
+# ─── Networks ──────────────────────────────────────────────────────────────────
+# Explicit bridge network so containers resolve each other by service name.
+# Without a named network every service is on the default bridge where name
+# resolution still works, but an explicit network makes the intent clear and
+# allows future per-tier network segmentation (e.g. separate db-net vs app-net).
+networks:
+  nyxn-net:
+    driver: bridge
+
 services:
+
+  # ─── PostgreSQL ─────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: nyxn-postgres
+    networks: [nyxn-net]
     environment:
       POSTGRES_DB: nyxn_ecommerce
       POSTGRES_USER: nyxn
@@ -18,11 +30,15 @@ services:
       timeout: 5s
       retries: 5
 
+  # ─── Redis ──────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: nyxn-redis
+    networks: [nyxn-net]
     ports:
       - "6379:6379"
+    # appendonly yes: every write is persisted immediately. Slower than RDB snapshots
+    # but guarantees at-most-one-second data loss on crash instead of up to 60 seconds.
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
@@ -32,11 +48,79 @@ services:
       timeout: 5s
       retries: 5
 
+  # ─── GCP Pub/Sub emulator ────────────────────────────────────────────────────
+  # Provides a local Pub/Sub API without GCP credentials or network access.
+  # The emulator is API-compatible with the real service — Spring Cloud GCP
+  # switches between them via PUBSUB_EMULATOR_HOST environment variable.
+  pubsub-emulator:
+    image: google/cloud-sdk:alpine
+    container_name: nyxn-pubsub-emulator
+    networks: [nyxn-net]
+    ports:
+      - "8085:8085"
+    command: >
+      gcloud beta emulators pubsub start
+      --project=local-project
+      --host-port=0.0.0.0:8085
+    healthcheck:
+      # The emulator exposes a plain HTTP endpoint; a 200 on / means it is ready.
+      test: ["CMD-SHELL", "curl -sf http://localhost:8085 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 5
+
+  # ─── Pub/Sub topic & subscription init ──────────────────────────────────────
+  # One-shot init container that creates topics and subscriptions after the
+  # emulator is healthy. The DLQ topic (product-events-dlq) is configured as the
+  # dead-letter topic on the product-events-subscription with max 5 delivery
+  # attempts — after 5 consecutive nacks the emulator routes the message to the
+  # DLQ, preventing a poison-pill message from blocking the subscription forever.
+  pubsub-init:
+    image: google/cloud-sdk:alpine
+    container_name: nyxn-pubsub-init
+    networks: [nyxn-net]
+    depends_on:
+      pubsub-emulator:
+        condition: service_healthy
+    environment:
+      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+    command: >
+      sh -c "
+        gcloud config set project local-project &&
+
+        gcloud pubsub topics create product-events        --project=local-project &&
+        gcloud pubsub topics create product-events-dlq    --project=local-project &&
+        gcloud pubsub topics create order-events          --project=local-project &&
+        gcloud pubsub topics create order-events-dlq      --project=local-project &&
+
+        gcloud pubsub subscriptions create product-events-subscription
+          --topic=product-events
+          --dead-letter-topic=product-events-dlq
+          --max-delivery-attempts=5
+          --ack-deadline=30
+          --project=local-project &&
+
+        gcloud pubsub subscriptions create order-events-subscription
+          --topic=order-events
+          --dead-letter-topic=order-events-dlq
+          --max-delivery-attempts=5
+          --ack-deadline=30
+          --project=local-project &&
+
+        echo 'Pub/Sub topics and subscriptions created.'
+      "
+    # restart: on-failure so that if the init container fails (race with emulator),
+    # Docker retries it without operator intervention.
+    restart: on-failure
+
+  # ─── Application ──────────────────────────────────────────────────────────
   api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: nyxn-api
+    networks: [nyxn-net]
     ports:
       - "8080:8080"
     environment:
@@ -45,11 +129,18 @@ services:
       DB_PASSWORD: nyxn
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      # Tells Spring Cloud GCP to route all Pub/Sub calls to the emulator instead
+      # of the real GCP endpoint. No credentials needed when this variable is set.
+      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      SPRING_CLOUD_GCP_PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      SPRING_CLOUD_GCP_PROJECT_ID: local-project
       SPRING_PROFILES_ACTIVE: docker
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      pubsub-emulator:
         condition: service_healthy
 
 volumes:

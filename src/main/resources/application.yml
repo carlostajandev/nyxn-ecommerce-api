@@ -53,6 +53,11 @@ nyxn:
     topics:
       product-events: ${PUBSUB_TOPIC_PRODUCT_EVENTS:product-events}
       order-events: ${PUBSUB_TOPIC_ORDER_EVENTS:order-events}
+      product-events-dlq: ${PUBSUB_TOPIC_PRODUCT_EVENTS_DLQ:product-events-dlq}
+      order-events-dlq: ${PUBSUB_TOPIC_ORDER_EVENTS_DLQ:order-events-dlq}
+    subscriptions:
+      product-events: ${PUBSUB_SUBSCRIPTION_PRODUCT_EVENTS:product-events-subscription}
+      order-events: ${PUBSUB_SUBSCRIPTION_ORDER_EVENTS:order-events-subscription}
 
 springdoc:
   api-docs:

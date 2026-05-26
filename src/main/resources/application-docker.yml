@@ -1,0 +1,20 @@
+# ─── Docker profile ───────────────────────────────────────────────────────────
+# Activated via SPRING_PROFILES_ACTIVE=docker in docker-compose.yml.
+# All infrastructure coordinates come from environment variables injected by
+# docker-compose; this file only sets values that differ from the defaults in
+# application.yml and cannot be expressed as env-var overrides cleanly.
+
+spring:
+  cloud:
+    gcp:
+      project-id: ${SPRING_CLOUD_GCP_PROJECT_ID:local-project}
+      pubsub:
+        # When PUBSUB_EMULATOR_HOST is set, the Spring Cloud GCP auto-configuration
+        # redirects all Pub/Sub calls to the emulator automatically.
+        # No GCP service account key is needed in local / CI environments.
+        emulator-host: ${SPRING_CLOUD_GCP_PUBSUB_EMULATOR_HOST:}
+
+logging:
+  level:
+    com.nyxn: DEBUG
+    com.google.cloud: WARN
