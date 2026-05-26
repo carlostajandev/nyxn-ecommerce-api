@@ -1,7 +1,7 @@
 name: Backend CI
 
 # Trigger only when backend/ files change. A documentation-only commit does not
-# run the full Maven build. monorepo path filters avoid unnecessary compute.
+# run the full Maven build. Monorepo path filters avoid unnecessary compute.
 on:
   push:
     branches: [main]
@@ -14,13 +14,18 @@ on:
       - 'backend/**'
       - '.github/workflows/backend-ci.yml'
 
+# ─── Environment ─────────────────────────────────────────────────────────────
+# Artifact Registry image path: region-docker.pkg.dev/PROJECT/REPO/IMAGE:TAG
+# Constructed from secrets so no project-specific values are hardcoded here.
+env:
+  IMAGE: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/nyxn/backend
+
 jobs:
+  # ── Job 1: Verify ──────────────────────────────────────────────────────────
   build-and-test:
     name: Build & Test (Java 21)
     runs-on: ubuntu-latest
-
-    # Docker is required for Testcontainers (PostgreSQL + Redis integration tests).
-    # ubuntu-latest runners have Docker pre-installed and the daemon is running.
+    # Docker is required for Testcontainers. ubuntu-latest has Docker pre-installed.
 
     steps:
       - name: Checkout
@@ -32,14 +37,13 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           # Cache the local Maven repository keyed on pom.xml hash.
-          # This cuts ~60 s off the build time on cache hit by skipping downloads.
+          # Cuts ~60 s off the build time on cache hit by skipping dependency downloads.
           cache: maven
           cache-dependency-path: backend/pom.xml
 
       - name: Check code format (Spotless)
         working-directory: backend
         run: mvn spotless:check -q
-        # Fail fast on format violations before spending time on compilation.
 
       - name: Compile
         working-directory: backend
@@ -52,22 +56,13 @@ jobs:
             -Dtest="ProductTest,CreateProductUseCaseTest,PlaceOrderServiceTest,StockReservationServiceTest,ConcurrentStockReservationTest" \
             -q
 
-      - name: Run integration tests
+      - name: Run integration tests (Testcontainers)
         working-directory: backend
-        # IT tests spin up Testcontainers (PostgreSQL + Redis). Docker is required.
-        # Separate step so unit test results are visible even if ITs fail.
         run: mvn verify -DskipUnitTests -q
-        continue-on-error: false
 
-      - name: Build Docker image (smoke test)
-        # Build the image without pushing to verify the Dockerfile is valid.
-        # A broken Dockerfile would only be caught at deploy time otherwise.
-        run: |
-          docker build -t nyxn-api:ci backend/
-          echo "Docker image built successfully"
-
+  # ── Job 2: Code quality ────────────────────────────────────────────────────
   code-quality:
-    name: Code Quality
+    name: Code Quality (Checkstyle)
     runs-on: ubuntu-latest
     needs: build-and-test
 
@@ -86,3 +81,131 @@ jobs:
       - name: Run Checkstyle
         working-directory: backend
         run: mvn checkstyle:check -q
+
+  # ── Job 3: Build & push Docker image ──────────────────────────────────────
+  docker:
+    name: Docker Build & Push
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    # Only push on commits to main, not on pull_request events.
+    # Pull requests only run the build-and-test job for cost control.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+
+      - name: Build JAR
+        working-directory: backend
+        # DskipTests: tests already ran in build-and-test job.
+        run: mvn package -DskipTests -q
+
+      # Authenticate to Google Cloud using a Service Account key stored as a
+      # GitHub Actions secret. In production, prefer Workload Identity Federation
+      # to avoid long-lived keys: https://cloud.google.com/iam/docs/workload-identity-federation
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configure Docker for Artifact Registry
+        # Configures the Docker credential helper so docker push authenticates
+        # to Artifact Registry without explicitly passing --username/--password.
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ env.IMAGE }}:${{ github.sha }} \
+            -t ${{ env.IMAGE }}:latest \
+            backend/
+
+      - name: Push Docker image to Artifact Registry
+        run: |
+          docker push ${{ env.IMAGE }}:${{ github.sha }}
+          docker push ${{ env.IMAGE }}:latest
+
+  # ── Job 4: Deploy to Cloud Run ─────────────────────────────────────────────
+  deploy:
+    name: Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    needs: docker
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ secrets.CLOUD_RUN_SERVICE_NAME }}
+          region: ${{ secrets.GCP_REGION }}
+          image: ${{ env.IMAGE }}:${{ github.sha }}
+          # Read sensitive env vars from Secret Manager via Cloud Run's native
+          # --set-secrets flag. The secret values are injected at container start
+          # time — they never appear in Cloud Run environment variable listings
+          # visible to operators in the console.
+          flags: |
+            --set-secrets DB_PASSWORD=db-password:latest
+            --set-secrets REDIS_PASSWORD=redis-password:latest
+            --set-env-vars SPRING_PROFILES_ACTIVE=prod
+            --set-env-vars GCP_PROJECT=${{ secrets.GCP_PROJECT_ID }}
+            --set-env-vars DB_HOST=${{ secrets.DB_HOST }}
+            --set-env-vars DB_NAME=${{ secrets.DB_NAME }}
+            --set-env-vars DB_USERNAME=${{ secrets.DB_USERNAME }}
+            --set-env-vars REDIS_HOST=${{ secrets.REDIS_HOST }}
+            --platform managed
+            --allow-unauthenticated
+            --min-instances 1
+            --max-instances 10
+            --memory 1Gi
+            --cpu 1
+
+      - name: Verify deployment health
+        # Wait up to 120 s for the new revision to report healthy.
+        # A non-200 from /actuator/health after rollout indicates the
+        # new image has a startup failure — the pipeline fails visibly here
+        # rather than silently serving a broken revision.
+        run: |
+          SERVICE_URL=$(gcloud run services describe ${{ secrets.CLOUD_RUN_SERVICE_NAME }} \
+            --region=${{ secrets.GCP_REGION }} \
+            --format='value(status.url)' \
+            --project=${{ secrets.GCP_PROJECT_ID }})
+          echo "Service URL: $SERVICE_URL"
+          for i in {1..12}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${SERVICE_URL}/actuator/health" || echo "000")
+            if [[ "$STATUS" == "200" ]]; then
+              echo "Health check passed (HTTP 200)"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $STATUS — waiting 10s..."
+            sleep 10
+          done
+          echo "Health check did not pass after 120s — deployment may have failed"
+          exit 1
+
+# ─── Required GitHub Actions secrets ─────────────────────────────────────────
+# Configure these in: Settings → Secrets and variables → Actions → New secret
+#
+# GCP_PROJECT_ID        → GCP project ID (e.g. nyxn-prod-123456)
+# GCP_SA_KEY            → Service account JSON key with roles:
+#                           - roles/run.admin
+#                           - roles/artifactregistry.writer
+#                           - roles/secretmanager.secretAccessor
+# GCP_REGION            → Cloud Run region (e.g. us-central1)
+# CLOUD_RUN_SERVICE_NAME → Cloud Run service name (e.g. nyxn-api)
+# DB_HOST               → Cloud SQL instance IP or hostname
+# DB_NAME               → Database name (e.g. nyxn_ecommerce)
+# DB_USERNAME           → Database username
+# REDIS_HOST            → Memorystore Redis IP
