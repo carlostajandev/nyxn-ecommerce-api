@@ -3,6 +3,7 @@ package com.nyxn.ecommerce.infrastructure.stock;
 import com.nyxn.ecommerce.domain.exceptions.InsufficientStockException;
 import com.nyxn.ecommerce.domain.exceptions.StockConflictException;
 import com.nyxn.ecommerce.domain.ports.out.ProductRepository;
+import com.nyxn.ecommerce.domain.ports.out.StockDbUpdaterPort;
 import com.nyxn.ecommerce.domain.valueobject.ProductId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,7 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
  * </ul>
  */
 @Component
-public class ProductStockUpdater {
+public class ProductStockUpdater implements StockDbUpdaterPort {
 
   private static final Logger log = LoggerFactory.getLogger(ProductStockUpdater.class);
 

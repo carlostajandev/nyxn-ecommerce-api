@@ -3,8 +3,8 @@ package com.nyxn.ecommerce.application.usecases;
 import com.nyxn.ecommerce.domain.exceptions.InsufficientStockException;
 import com.nyxn.ecommerce.domain.ports.in.ReserveStockUseCase;
 import com.nyxn.ecommerce.domain.ports.out.StockCachePort;
+import com.nyxn.ecommerce.domain.ports.out.StockDbUpdaterPort;
 import com.nyxn.ecommerce.domain.valueobject.ProductId;
-import com.nyxn.ecommerce.infrastructure.stock.ProductStockUpdater;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
@@ -57,14 +57,15 @@ public class StockReservationService implements ReserveStockUseCase {
   // Redis-backed cache port: atomic Lua-script operations
   private final StockCachePort stockCachePort;
 
-  // Separate @Component so @Retryable + @Transactional proxy composition works correctly.
-  // See ProductStockUpdater Javadoc for the detailed proxy-ordering explanation.
-  private final ProductStockUpdater productStockUpdater;
+  // Outbound port — Spring injects ProductStockUpdater (the concrete adapter).
+  // Using the port interface keeps the application layer free of infrastructure imports
+  // and makes the dependency boundary visible: application → port ← infrastructure.
+  // See ProductStockUpdater Javadoc for the @Retryable + @Transactional proxy-ordering rationale.
+  private final StockDbUpdaterPort stockDbUpdater;
 
-  public StockReservationService(
-      StockCachePort stockCachePort, ProductStockUpdater productStockUpdater) {
+  public StockReservationService(StockCachePort stockCachePort, StockDbUpdaterPort stockDbUpdater) {
     this.stockCachePort = stockCachePort;
-    this.productStockUpdater = productStockUpdater;
+    this.stockDbUpdater = stockDbUpdater;
   }
 
   /**
@@ -91,7 +92,7 @@ public class StockReservationService implements ReserveStockUseCase {
 
     try {
       // DB write with optimistic-lock retry. If this throws, we compensate the cache below.
-      productStockUpdater.decreaseStock(productId, quantity);
+      stockDbUpdater.decreaseStock(productId, quantity);
       log.info("Stock reserved: product={} qty={} cacheHit={}", productId, quantity, cacheReserved);
     } catch (Exception e) {
       // The DB write failed (either InsufficientStockException or StockConflictException after
@@ -118,7 +119,7 @@ public class StockReservationService implements ReserveStockUseCase {
       throw new IllegalArgumentException("Release quantity must be positive, got: " + quantity);
     }
     stockCachePort.increment(productId, quantity);
-    productStockUpdater.increaseStock(productId, quantity);
+    stockDbUpdater.increaseStock(productId, quantity);
     log.info("Stock released: product={} qty={}", productId, quantity);
   }
 

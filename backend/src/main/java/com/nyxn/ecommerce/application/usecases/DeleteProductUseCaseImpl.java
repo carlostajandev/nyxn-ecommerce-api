@@ -5,6 +5,9 @@ import com.nyxn.ecommerce.domain.ports.in.DeleteProductUseCase;
 import com.nyxn.ecommerce.domain.ports.out.ProductEventPublisher;
 import com.nyxn.ecommerce.domain.ports.out.ProductRepository;
 import com.nyxn.ecommerce.domain.valueobject.ProductId;
+import com.nyxn.ecommerce.infrastructure.config.RedisConfig;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +25,13 @@ public class DeleteProductUseCaseImpl implements DeleteProductUseCase {
 
   @Override
   @Transactional
+  @Caching(
+      evict = {
+        @CacheEvict(value = RedisConfig.CACHE_ANALYTICS_TOP, allEntries = true),
+        @CacheEvict(value = RedisConfig.CACHE_ANALYTICS_REVENUE, allEntries = true),
+        @CacheEvict(value = RedisConfig.CACHE_ANALYTICS_LOW_STOCK, allEntries = true),
+        @CacheEvict(value = RedisConfig.CACHE_PRODUCTS, allEntries = true)
+      })
   public void execute(ProductId id) {
     if (!productRepository.existsById(id)) {
       throw new ProductNotFoundException(id);

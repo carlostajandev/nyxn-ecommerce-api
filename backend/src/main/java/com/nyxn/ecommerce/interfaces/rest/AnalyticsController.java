@@ -5,7 +5,10 @@ import com.nyxn.ecommerce.domain.ports.in.analytics.ProductAnalyticsUseCase.LowS
 import com.nyxn.ecommerce.domain.ports.in.analytics.ProductAnalyticsUseCase.MonthlyRevenueDto;
 import com.nyxn.ecommerce.domain.ports.in.analytics.ProductAnalyticsUseCase.TopProductDto;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
@@ -39,9 +42,23 @@ public class AnalyticsController {
   @Operation(
       summary = "Top products by category",
       description =
-          "Returns the top 5 products per category by confirmed order count. "
-              + "Uses PostgreSQL RANK() window function. Cached for 15 minutes.")
-  @ApiResponse(responseCode = "200", description = "Ranked products per category")
+          "Returns the top 5 products per category ranked by confirmed order count. "
+              + "Ties share the same rank (RANK, not ROW_NUMBER). "
+              + "Result is served from Redis (TTL 15 min ± 90 s jitter). "
+              + "Cache miss triggers a PostgreSQL window function query over the v_top_products_by_category view.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Ranked products per category"),
+    @ApiResponse(
+        responseCode = "500",
+        description = "Unexpected error querying PostgreSQL or deserialising the cache",
+        content = @Content(schema = @Schema(implementation = Void.class))),
+    @ApiResponse(
+        responseCode = "503",
+        description =
+            "Redis unavailable. If spring.cache.redis.fallback-to-no-op=false this surfaces as 503 "
+                + "— configure the cache to fall through to the DB on Redis outage.",
+        content = @Content(schema = @Schema(implementation = Void.class)))
+  })
   @GetMapping("/top-products")
   public ResponseEntity<List<TopProductDto>> topProducts() {
     return ResponseEntity.ok(analyticsUseCase.getTopProductsByCategory());
@@ -50,9 +67,20 @@ public class AnalyticsController {
   @Operation(
       summary = "Monthly revenue trend",
       description =
-          "Month-over-month revenue with growth percentage. "
-              + "Uses PostgreSQL LAG() window function. Cached for 15 minutes.")
-  @ApiResponse(responseCode = "200", description = "Monthly revenue trend")
+          "Month-over-month revenue growth rate for confirmed orders. "
+              + "Uses PostgreSQL LAG() window function and GENERATE_SERIES to include zero-revenue months. "
+              + "Cached for 15 minutes (± 90 s jitter).")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Monthly revenue trend"),
+    @ApiResponse(
+        responseCode = "500",
+        description = "Unexpected error querying the revenue trend view",
+        content = @Content(schema = @Schema(implementation = Void.class))),
+    @ApiResponse(
+        responseCode = "503",
+        description = "Redis cache unavailable",
+        content = @Content(schema = @Schema(implementation = Void.class)))
+  })
   @GetMapping("/revenue-trend")
   public ResponseEntity<List<MonthlyRevenueDto>> revenueTrend() {
     return ResponseEntity.ok(analyticsUseCase.getMonthlyRevenueTrend());
@@ -61,9 +89,21 @@ public class AnalyticsController {
   @Operation(
       summary = "Low-stock alerts",
       description =
-          "Products with stock below 10 units, classified by urgency (CRITICAL/HIGH/MEDIUM). "
-              + "Uses the partial index idx_products_stock. Cached for 15 minutes.")
-  @ApiResponse(responseCode = "200", description = "Low-stock product list")
+          "Products with stock < 10 units, classified by urgency tier: "
+              + "CRITICAL (stock = 0), HIGH (< 5), MEDIUM (5–9). "
+              + "Backed by the partial index idx_products_stock (WHERE stock < 10) for O(low-stock rows) scan. "
+              + "Cached for 15 minutes; evicted immediately on any stock reserve or release operation.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Low-stock product list"),
+    @ApiResponse(
+        responseCode = "500",
+        description = "Unexpected error querying the low-stock view",
+        content = @Content(schema = @Schema(implementation = Void.class))),
+    @ApiResponse(
+        responseCode = "503",
+        description = "Redis cache unavailable",
+        content = @Content(schema = @Schema(implementation = Void.class)))
+  })
   @GetMapping("/low-stock")
   public ResponseEntity<List<LowStockAlertDto>> lowStock() {
     return ResponseEntity.ok(analyticsUseCase.getLowStockAlerts());

@@ -1,0 +1,63 @@
+# application-prod.yml — production Spring profile
+#
+# Activated by: SPRING_PROFILES_ACTIVE=prod (set in Cloud Run via --set-env-vars)
+#
+# Secret Manager property references use the pattern:
+#   ${sm://projects/${GCP_PROJECT}/secrets/<secret-name>/versions/latest}
+#
+# The GcpSecretManagerEnvironmentPostProcessor (activated by
+# spring.cloud.gcp.secretmanager.enabled=true) resolves these before the
+# application context starts. Secrets are fetched once at startup, not per request.
+#
+# Required secrets (create with: gcloud secrets create <name> --data-file=-):
+#   db-password    → PostgreSQL password
+#   redis-password → Redis AUTH password (leave blank if Redis has no password)
+#   claude-api-key → Anthropic API key for the Claude agent
+
+spring:
+  cloud:
+    gcp:
+      project-id: ${GCP_PROJECT}
+      secretmanager:
+        # Enable Secret Manager property source in the prod profile only.
+        # In local/docker profiles this is false (default), so sm:// references
+        # are never evaluated and no GCP credentials are required.
+        enabled: true
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST}:5432/${DB_NAME}
+    username: ${DB_USERNAME}
+    # Resolved from GCP Secret Manager at startup.
+    password: ${sm://projects/${GCP_PROJECT}/secrets/db-password/versions/latest}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      # Resolved from GCP Secret Manager at startup.
+      # Leave the secret value blank if your Redis instance has no AUTH password.
+      password: ${sm://projects/${GCP_PROJECT}/secrets/redis-password/versions/latest}
+
+  jpa:
+    show-sql: false
+
+logging:
+  level:
+    com.nyxn: INFO
+    # Suppress verbose GCP client logs in production — they are INFO-level
+    # and would flood Cloud Logging with SDK internals.
+    com.google.cloud: WARN
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Expose only health in production. Avoid leaking env vars via /actuator/env.
+        include: health
+  endpoint:
+    health:
+      show-details: never

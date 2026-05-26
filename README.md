@@ -61,7 +61,7 @@ nyxn-ecommerce/
 | 1.2 | SOLID refactor of legacy OrderService | Java 21 records, design patterns |
 | 2 | Orders hexagonal module + Testcontainers | Spring Boot, PostgreSQL, Redis |
 | 3 | Cyber Day stock reservation | Redis Lua, optimistic locking, Spring Retry |
-| 4A | SQL analytics with window functions | PostgreSQL RANK(), LAG(), views |
+| 4A | SQL analytics with CTEs + window functions | PostgreSQL RANK(), LAG(), GENERATE_SERIES, views |
 | 4B | Redis enterprise cache patterns | Per-cache TTL, jitter, cache warming |
 | 5 | Docker + GCP Pub/Sub | Multi-stage Dockerfile, Pub/Sub emulator, subscriber |
 | 6A | NestJS notification microservice | NestJS, TypeScript, Pub/Sub, DLQ |
@@ -79,6 +79,10 @@ nyxn-ecommerce/
 ### 1. Start the full stack
 
 ```bash
+# Copy and configure environment variables first
+cp .env.example .env
+# Edit .env — set POSTGRES_PASSWORD and optionally ANTHROPIC_API_KEY
+
 docker-compose up -d
 ```
 
@@ -219,11 +223,27 @@ Redis acts as a fast gate: 70 requests for a product with 30 units are rejected 
 
 Topics and subscriptions are configured with `maxDeliveryAttempts=5`. After 5 consecutive nacks (from either the Spring Boot subscriber or the NestJS subscriber), GCP automatically routes the message to the dead-letter topic (`*-dlq`). This prevents poison-pill messages from blocking subscriptions indefinitely.
 
+### Notification Strategy Pattern (Section 6A)
+
+`POST /notifications/notify` dispatches through a registered `NotificationStrategy`:
+
+| Channel | Strategy class | Transport (stub in demo) |
+|---------|----------------|--------------------------|
+| `email` | `EmailNotificationStrategy` | SMTP (nodemailer / SendGrid) |
+| `push`  | `PushNotificationStrategy`  | FCM / APNs / OneSignal |
+| `sms`   | `SmsNotificationStrategy`   | Twilio / AWS SNS |
+
+**Adding a new channel** requires only two steps: implement `NotificationStrategy`, register it in `NotificationsModule` with `multi: true` under `NOTIFICATION_STRATEGIES`. The controller and registry require zero changes — Open/Closed Principle in practice.
+
+The `NotificationStrategyRegistry` uses NestJS multi-provider injection to receive all strategies as an array and builds a `Map<channel, strategy>` at construction time — O(1) lookup on every request.
+
 ### Claude Agent (Section 6B)
 
 `ClaudeAgentService` uses `claude-haiku-4-5` — chosen for speed and cost at notification scale. The system prompt constrains Claude to return a JSON object `{ subject, body, channel }` — structured output is more reliable for downstream consumers than parsing free-form prose.
 
-The endpoint `POST /agent/smart-notification` accepts a product event + optional audience context and returns AI-generated notification copy ready for delivery.
+Two complementary endpoints:
+- `POST /agent/smart-notification` — Claude picks subject, body, and channel based on event context.
+- `POST /notifications/notify` — Caller provides content; strategy delivers it. Used after Claude generates copy.
 
 ---
 
@@ -236,12 +256,160 @@ Two independent GitHub Actions pipelines triggered by monorepo path filters:
 
 ---
 
-## Scaling Strategy
+## GCP Secret Manager
+
+Production secrets are never stored in environment variables or committed to source control. The backend reads them at startup from GCP Secret Manager when `SPRING_PROFILES_ACTIVE=prod`.
+
+### Create secrets (run once per environment)
+
+```bash
+# DB password
+echo -n "your-db-password" \
+  | gcloud secrets create db-password --data-file=- --project=$GCP_PROJECT
+
+# Redis AUTH password (leave blank if Redis has no AUTH)
+echo -n "" \
+  | gcloud secrets create redis-password --data-file=- --project=$GCP_PROJECT
+
+# Anthropic API key
+echo -n "sk-ant-..." \
+  | gcloud secrets create claude-api-key --data-file=- --project=$GCP_PROJECT
+```
+
+### Grant the Cloud Run service account access
+
+```bash
+SA_EMAIL="$(gcloud iam service-accounts list \
+  --filter="displayName:nyxn-api" \
+  --format='value(email)' \
+  --project=$GCP_PROJECT)"
+
+for SECRET in db-password redis-password claude-api-key; do
+  gcloud secrets add-iam-policy-binding $SECRET \
+    --member="serviceAccount:$SA_EMAIL" \
+    --role="roles/secretmanager.secretAccessor" \
+    --project=$GCP_PROJECT
+done
+```
+
+### How it works in code
+
+In `application-prod.yml`, passwords reference the secret directly:
+
+```yaml
+spring:
+  datasource:
+    password: ${sm://projects/${GCP_PROJECT}/secrets/db-password/versions/latest}
+  data:
+    redis:
+      password: ${sm://projects/${GCP_PROJECT}/secrets/redis-password/versions/latest}
+```
+
+`SecretManagerConfig.java` validates at startup that the resolved password is non-blank — the application fails fast rather than surfacing a credentials error on the first DB connection.
+
+In local/Docker profiles, `spring.cloud.gcp.secretmanager.enabled` is `false` (the default). The `sm://` references are never evaluated, and passwords fall back to `.env` values — no GCP credentials required on a developer machine.
+
+---
+
+## Claude API — Tool Use vs RAG
+
+### Why Tool Use (not RAG)
+
+This project uses **Tool Use** for the Claude agent in `ClaudeAgentService`. The agent can be extended with tool definitions so Claude calls backend functions (look up product details, customer preferences, A/B test variants) and incorporates the results into the notification copy.
+
+| Property | Tool Use | RAG |
+|----------|----------|-----|
+| **Control** | Backend defines which functions Claude can call | LLM controls what it retrieves |
+| **Auditability** | Every tool call is logged with inputs and outputs | Retrieval is implicit |
+| **Safety** | Backend validates tool parameters before executing | Vector search has no validation gate |
+| **Latency** | One LLM call + optional tool round-trips (~200–500 ms) | Embedding + vector search adds 50–200 ms overhead |
+| **Cost** | Priced per token; Haiku minimises cost | Additional embedding model cost |
+
+### When RAG would be preferable
+
+- **Dynamic knowledge base**: product catalog > 10k items, FAQs, return policies, legal text — content that changes often and doesn't fit in the prompt window.
+- **Semantic search**: "find all products similar to this description" — fuzzy retrieval that SQL `LIKE` cannot do.
+- **Internal documents**: marketing briefs, tone guides, historical campaign data.
+
+### Security properties implemented
+
+- **Input sanitisation**: `audienceContext` is injected into the prompt as user-provided content. In production, sanitise before injection (strip prompt-injection patterns).
+- **Zero trust**: `ANTHROPIC_API_KEY` is stored in GCP Secret Manager and injected at container start — never exposed to the client or in Cloud Run environment variable listings.
+- **Structured output**: the system prompt constrains Claude to respond with a JSON schema. If the response cannot be parsed, the endpoint returns 500 rather than forwarding malformed text to consumers.
+- **Rate limiting** (production gap): add per-`userId` rate limiting at the API Gateway level (e.g. Cloud Endpoints quota) to prevent abuse of the AI endpoint at cost.
+
+---
+
+## How to Scale to 100k RPM
+
+100k RPM = ~1,667 RPS. With p99 latency of 150 ms on the product read path, a single Cloud Run instance handles ~80 concurrent requests → **~21 instances** at peak (with 2× safety margin: ~42).
+
+### API layer (Cloud Run)
+
+```
+Min instances: 5      (avoids cold-start penalty on traffic ramp)
+Max instances: 100    (hard ceiling to protect DB connection pool)
+Concurrency:   80     (Cloud Run default; tune based on measured CPU saturation)
+CPU:           2 vCPU / 4 GB RAM per instance
+```
+
+Cloud Run autoscales in < 5 s — adequate for organic traffic. For flash sales (Cyber Day), pre-warm with `gcloud run services update --min-instances 20` before the event window.
+
+### Cache layer (Redis)
+
+```
+Cluster: 3 shards + 3 replicas (6 nodes total)
+Product cache hit rate target: ≥ 95%
+  → 5% miss rate = ~83 RPS reaching PostgreSQL (manageable)
+Analytics cache hit rate target: ≥ 99%
+  → Low-frequency dashboard calls rarely miss
+```
+
+### Database layer (PostgreSQL / Cloud SQL)
+
+```
+Read replicas: 2 (route GET /products/* and analytics reads)
+Connection pooling: PgBouncer (transaction mode, max 100 connections per instance)
+Key indexes (already in V1/V2 migrations):
+  idx_orders_product_status   (product_id, status) WHERE status = 'CONFIRMED'
+  idx_orders_created_month    (DATE_TRUNC('month', created_at)) WHERE status = 'CONFIRMED'
+  idx_products_stock          (stock) WHERE stock < 10   ← partial index
+```
+
+### Resilience (Circuit Breaker)
+
+Add Resilience4j to the backend:
+
+```java
+@CircuitBreaker(name = "database", fallbackMethod = "getCachedProducts")
+@Cacheable(value = "products")
+public Page<Product> findAll(Pageable pageable) { ... }
+
+private Page<Product> getCachedProducts(Pageable pageable, Exception e) {
+    // Return stale cache or empty page — degrade gracefully, never fail open
+    log.warn("Circuit breaker open — returning stale product list");
+    return Page.empty();
+}
+```
+
+Configuration: open if > 50% of calls fail in a 10-second sliding window; half-open after 30 s.
+
+### Flash sale (Cyber Day) checklist
+
+- [ ] Pre-warm Redis stock cache for top-100 products (`CacheWarmupService` runs on `ApplicationReadyEvent`)
+- [ ] Scale Cloud Run to min 20 instances 15 min before event
+- [ ] Enable Cloud SQL read replica routing for GET requests
+- [ ] Set Pub/Sub `flowControl.maxMessages=50` on NestJS (increase throughput)
+- [ ] Monitor: Cloud Run request latency P99, Redis hit rate, PostgreSQL active connections
+
+---
+
+## Scaling Strategy (summary table)
 
 | Bottleneck | Strategy |
 |------------|----------|
 | Product catalog reads | Redis Cache Aside (45 min TTL + jitter). Read replicas for overflow. |
-| Flash sale stock reservation | Redis atomic Lua gate filters 99 % of excess requests before they touch PostgreSQL. |
+| Flash sale stock reservation | Redis atomic Lua gate filters 99% of excess requests before they touch PostgreSQL. |
 | Analytics queries | PostgreSQL views + Redis (15 min TTL). Acceptable staleness for dashboards. |
 | Notification throughput | NestJS subscribes to Pub/Sub with `flowControl.maxMessages=10`. Scale horizontally — each instance subscribes independently. |
 | Claude API latency | Haiku model (~200 ms P99). Not on the hot path — called only for premium notification generation, not for every Pub/Sub message. |

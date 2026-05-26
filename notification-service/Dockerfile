@@ -1,29 +1,42 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Stage 1 — Dependencies
+# Stage 1 — Production dependencies (prod-deps)
 # ─────────────────────────────────────────────────────────────────────────────
-# Separate the npm install from the build step. node_modules changes only when
-# package.json changes — this layer is cached across every code-only change.
-FROM node:20-alpine AS deps
+# Install ONLY production dependencies (--omit=dev) so this layer is cached
+# and re-used directly by the runtime stage. By separating prod and dev deps
+# into distinct stages, the final image never touches the npm registry at all
+# — it only copies artefacts from earlier stages.
+FROM node:20-alpine AS prod-deps
 WORKDIR /app
 COPY package*.json ./
-# --omit=dev installs only production dependencies in this stage.
-# We install ALL deps here (dev included) because we still need to run `nest build`.
+RUN npm ci --omit=dev --silent && npm cache clean --force
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2 — All dependencies (build-deps)
+# ─────────────────────────────────────────────────────────────────────────────
+# Install full dependency tree including devDependencies needed to compile.
+# TypeScript, ts-jest, ESLint, @types/* — none of these belong in the runtime.
+FROM node:20-alpine AS build-deps
+WORKDIR /app
+COPY package*.json ./
 RUN npm ci --silent
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Stage 2 — Build
+# Stage 3 — Build
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+# Pull full node_modules from build-deps (avoids reinstalling).
+COPY --from=build-deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Stage 3 — Runtime
+# Stage 4 — Runtime
 # ─────────────────────────────────────────────────────────────────────────────
-# Alpine keeps the image small. Only the compiled dist/ and production
-# node_modules are copied — devDependencies stay in the build stage.
+# Alpine keeps the image small. Both artefacts are copied from earlier stages:
+#   - node_modules from prod-deps (no devDependencies, no TypeScript compiler).
+#   - dist/         from builder  (compiled JS).
+# The network is never touched here — deterministic and cache-friendly.
 FROM node:20-alpine AS runtime
 
 LABEL org.opencontainers.image.title="nyxn-notification-service" \
@@ -34,12 +47,11 @@ RUN addgroup -S nyxn && adduser -S nyxn -G nyxn
 WORKDIR /app
 RUN chown nyxn:nyxn /app
 
-# Install only production dependencies fresh in the runtime stage — avoids
-# carrying build tools (TypeScript compiler, ts-jest, etc.) into the final image.
+# Copy only what the runtime needs.
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=builder   /app/dist         ./dist
 COPY package*.json ./
-RUN npm ci --omit=dev --silent && npm cache clean --force
 
-COPY --from=builder /app/dist ./dist
 RUN chown -R nyxn:nyxn /app
 
 USER nyxn
