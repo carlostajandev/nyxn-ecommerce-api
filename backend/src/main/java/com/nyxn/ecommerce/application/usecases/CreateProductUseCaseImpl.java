@@ -9,6 +9,9 @@ import com.nyxn.ecommerce.domain.ports.out.StockCachePort;
 import com.nyxn.ecommerce.domain.valueobject.Money;
 import com.nyxn.ecommerce.domain.valueobject.ProductId;
 import com.nyxn.ecommerce.domain.valueobject.Stock;
+import com.nyxn.ecommerce.infrastructure.config.RedisConfig;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,8 +31,22 @@ public class CreateProductUseCaseImpl implements CreateProductUseCase {
     this.stockCachePort = stockCachePort;
   }
 
+  /**
+   * Evict analytics caches on product creation.
+   *
+   * <p>A new product changes the ranking in v_top_products_by_category and the total product count
+   * in revenue reports. More importantly, a data-migration bulk-insert of products with historical
+   * order counts would make the cached ranking immediately stale. Evicting both caches here ensures
+   * the next dashboard read reflects the new state within one TTL cycle rather than waiting up to
+   * 15 minutes.
+   */
   @Override
   @Transactional
+  @Caching(
+      evict = {
+        @CacheEvict(value = RedisConfig.CACHE_ANALYTICS_TOP, allEntries = true),
+        @CacheEvict(value = RedisConfig.CACHE_ANALYTICS_REVENUE, allEntries = true)
+      })
   public Product execute(CreateProductCommand command) {
     Product product =
         Product.builder()

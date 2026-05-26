@@ -311,12 +311,105 @@ In local/Docker profiles, `spring.cloud.gcp.secretmanager.enabled` is `false` (t
 
 ---
 
-## Scaling Strategy
+## Claude API — Tool Use vs RAG
+
+### Why Tool Use (not RAG)
+
+This project uses **Tool Use** for the Claude agent in `ClaudeAgentService`. The agent can be extended with tool definitions so Claude calls backend functions (look up product details, customer preferences, A/B test variants) and incorporates the results into the notification copy.
+
+| Property | Tool Use | RAG |
+|----------|----------|-----|
+| **Control** | Backend defines which functions Claude can call | LLM controls what it retrieves |
+| **Auditability** | Every tool call is logged with inputs and outputs | Retrieval is implicit |
+| **Safety** | Backend validates tool parameters before executing | Vector search has no validation gate |
+| **Latency** | One LLM call + optional tool round-trips (~200–500 ms) | Embedding + vector search adds 50–200 ms overhead |
+| **Cost** | Priced per token; Haiku minimises cost | Additional embedding model cost |
+
+### When RAG would be preferable
+
+- **Dynamic knowledge base**: product catalog > 10k items, FAQs, return policies, legal text — content that changes often and doesn't fit in the prompt window.
+- **Semantic search**: "find all products similar to this description" — fuzzy retrieval that SQL `LIKE` cannot do.
+- **Internal documents**: marketing briefs, tone guides, historical campaign data.
+
+### Security properties implemented
+
+- **Input sanitisation**: `audienceContext` is injected into the prompt as user-provided content. In production, sanitise before injection (strip prompt-injection patterns).
+- **Zero trust**: `ANTHROPIC_API_KEY` is stored in GCP Secret Manager and injected at container start — never exposed to the client or in Cloud Run environment variable listings.
+- **Structured output**: the system prompt constrains Claude to respond with a JSON schema. If the response cannot be parsed, the endpoint returns 500 rather than forwarding malformed text to consumers.
+- **Rate limiting** (production gap): add per-`userId` rate limiting at the API Gateway level (e.g. Cloud Endpoints quota) to prevent abuse of the AI endpoint at cost.
+
+---
+
+## How to Scale to 100k RPM
+
+100k RPM = ~1,667 RPS. With p99 latency of 150 ms on the product read path, a single Cloud Run instance handles ~80 concurrent requests → **~21 instances** at peak (with 2× safety margin: ~42).
+
+### API layer (Cloud Run)
+
+```
+Min instances: 5      (avoids cold-start penalty on traffic ramp)
+Max instances: 100    (hard ceiling to protect DB connection pool)
+Concurrency:   80     (Cloud Run default; tune based on measured CPU saturation)
+CPU:           2 vCPU / 4 GB RAM per instance
+```
+
+Cloud Run autoscales in < 5 s — adequate for organic traffic. For flash sales (Cyber Day), pre-warm with `gcloud run services update --min-instances 20` before the event window.
+
+### Cache layer (Redis)
+
+```
+Cluster: 3 shards + 3 replicas (6 nodes total)
+Product cache hit rate target: ≥ 95%
+  → 5% miss rate = ~83 RPS reaching PostgreSQL (manageable)
+Analytics cache hit rate target: ≥ 99%
+  → Low-frequency dashboard calls rarely miss
+```
+
+### Database layer (PostgreSQL / Cloud SQL)
+
+```
+Read replicas: 2 (route GET /products/* and analytics reads)
+Connection pooling: PgBouncer (transaction mode, max 100 connections per instance)
+Key indexes (already in V1/V2 migrations):
+  idx_orders_product_status   (product_id, status) WHERE status = 'CONFIRMED'
+  idx_orders_created_month    (DATE_TRUNC('month', created_at)) WHERE status = 'CONFIRMED'
+  idx_products_stock          (stock) WHERE stock < 10   ← partial index
+```
+
+### Resilience (Circuit Breaker)
+
+Add Resilience4j to the backend:
+
+```java
+@CircuitBreaker(name = "database", fallbackMethod = "getCachedProducts")
+@Cacheable(value = "products")
+public Page<Product> findAll(Pageable pageable) { ... }
+
+private Page<Product> getCachedProducts(Pageable pageable, Exception e) {
+    // Return stale cache or empty page — degrade gracefully, never fail open
+    log.warn("Circuit breaker open — returning stale product list");
+    return Page.empty();
+}
+```
+
+Configuration: open if > 50% of calls fail in a 10-second sliding window; half-open after 30 s.
+
+### Flash sale (Cyber Day) checklist
+
+- [ ] Pre-warm Redis stock cache for top-100 products (`CacheWarmupService` runs on `ApplicationReadyEvent`)
+- [ ] Scale Cloud Run to min 20 instances 15 min before event
+- [ ] Enable Cloud SQL read replica routing for GET requests
+- [ ] Set Pub/Sub `flowControl.maxMessages=50` on NestJS (increase throughput)
+- [ ] Monitor: Cloud Run request latency P99, Redis hit rate, PostgreSQL active connections
+
+---
+
+## Scaling Strategy (summary table)
 
 | Bottleneck | Strategy |
 |------------|----------|
 | Product catalog reads | Redis Cache Aside (45 min TTL + jitter). Read replicas for overflow. |
-| Flash sale stock reservation | Redis atomic Lua gate filters 99 % of excess requests before they touch PostgreSQL. |
+| Flash sale stock reservation | Redis atomic Lua gate filters 99% of excess requests before they touch PostgreSQL. |
 | Analytics queries | PostgreSQL views + Redis (15 min TTL). Acceptable staleness for dashboards. |
 | Notification throughput | NestJS subscribes to Pub/Sub with `flowControl.maxMessages=10`. Scale horizontally — each instance subscribes independently. |
 | Claude API latency | Haiku model (~200 ms P99). Not on the hot path — called only for premium notification generation, not for every Pub/Sub message. |
