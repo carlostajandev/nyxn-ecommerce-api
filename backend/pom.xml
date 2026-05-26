@@ -122,6 +122,16 @@
             <version>5.3.0</version>
         </dependency>
 
+        <!-- GCP Secret Manager — reads secrets at startup via @Value("${sm://...}").
+             Only activated when spring.cloud.gcp.secretmanager.enabled=true
+             (set in application-prod.yml; disabled by default in local profiles
+             so dev machines don't need GCP credentials). -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>spring-cloud-gcp-starter-secretmanager</artifactId>
+            <version>5.3.0</version>
+        </dependency>
+
         <!-- Spring Retry — declarative retry with @Retryable / @Recover.
              spring-aspects brings the AspectJ weaver that activates @EnableRetry. -->
         <dependency>

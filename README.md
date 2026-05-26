@@ -256,6 +256,61 @@ Two independent GitHub Actions pipelines triggered by monorepo path filters:
 
 ---
 
+## GCP Secret Manager
+
+Production secrets are never stored in environment variables or committed to source control. The backend reads them at startup from GCP Secret Manager when `SPRING_PROFILES_ACTIVE=prod`.
+
+### Create secrets (run once per environment)
+
+```bash
+# DB password
+echo -n "your-db-password" \
+  | gcloud secrets create db-password --data-file=- --project=$GCP_PROJECT
+
+# Redis AUTH password (leave blank if Redis has no AUTH)
+echo -n "" \
+  | gcloud secrets create redis-password --data-file=- --project=$GCP_PROJECT
+
+# Anthropic API key
+echo -n "sk-ant-..." \
+  | gcloud secrets create claude-api-key --data-file=- --project=$GCP_PROJECT
+```
+
+### Grant the Cloud Run service account access
+
+```bash
+SA_EMAIL="$(gcloud iam service-accounts list \
+  --filter="displayName:nyxn-api" \
+  --format='value(email)' \
+  --project=$GCP_PROJECT)"
+
+for SECRET in db-password redis-password claude-api-key; do
+  gcloud secrets add-iam-policy-binding $SECRET \
+    --member="serviceAccount:$SA_EMAIL" \
+    --role="roles/secretmanager.secretAccessor" \
+    --project=$GCP_PROJECT
+done
+```
+
+### How it works in code
+
+In `application-prod.yml`, passwords reference the secret directly:
+
+```yaml
+spring:
+  datasource:
+    password: ${sm://projects/${GCP_PROJECT}/secrets/db-password/versions/latest}
+  data:
+    redis:
+      password: ${sm://projects/${GCP_PROJECT}/secrets/redis-password/versions/latest}
+```
+
+`SecretManagerConfig.java` validates at startup that the resolved password is non-blank — the application fails fast rather than surfacing a credentials error on the first DB connection.
+
+In local/Docker profiles, `spring.cloud.gcp.secretmanager.enabled` is `false` (the default). The `sm://` references are never evaluated, and passwords fall back to `.env` values — no GCP credentials required on a developer machine.
+
+---
+
 ## Scaling Strategy
 
 | Bottleneck | Strategy |
