@@ -2,12 +2,12 @@ package com.nyxn.ecommerce.infrastructure.messaging;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.cloud.spring.pubsub.core.PubSubTemplate;
 import com.nyxn.ecommerce.domain.model.Product;
 import com.nyxn.ecommerce.domain.ports.out.ProductEventPublisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cloud.gcp.pubsub.core.PubSubTemplate;
 import org.springframework.stereotype.Component;
 
 /**
@@ -53,9 +53,12 @@ public class PubSubProductEventPublisher implements ProductEventPublisher {
       String message = objectMapper.writeValueAsString(event);
       pubSubTemplate
           .publish(productEventsTopic, message)
-          .addCallback(
-              id -> log.info("Event {} published for entity {}", eventType, entityId),
-              ex -> log.error("Failed to publish event {} for entity {}", eventType, entityId, ex));
+          .thenAccept(id -> log.info("Event {} published for entity {}", eventType, entityId))
+          .exceptionally(
+              ex -> {
+                log.error("Failed to publish event {} for entity {}", eventType, entityId, ex);
+                return null;
+              });
     } catch (JsonProcessingException ex) {
       log.error("Failed to serialize event {} for entity {}", eventType, entityId, ex);
     }
