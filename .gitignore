@@ -21,3 +21,5 @@ dist/
 .env.*.local
 application-local.yml
 application-secrets.yml
+notification-service/pnpm-lock.yaml
+notification-service/pnpm-workspace.yaml
