@@ -97,11 +97,17 @@ services:
         condition: service_healthy
     environment:
       PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      # Disable GCP auth entirely — the emulator does not require credentials.
+      # Without this, gcloud 569+ exits with "no active account" even when
+      # PUBSUB_EMULATOR_HOST is set.
+      CLOUDSDK_AUTH_DISABLE_CREDENTIALS: "true"
+      CLOUDSDK_CORE_DISABLE_PROMPTS: "1"
     command:
       - bash
       - -c
       - |
         gcloud config set project ${GCP_PROJECT_ID:-local-project} &&
+        gcloud config set auth/disable_credentials true &&
         gcloud pubsub topics create product-events     --project=${GCP_PROJECT_ID:-local-project} &&
         gcloud pubsub topics create product-events-dlq --project=${GCP_PROJECT_ID:-local-project} &&
         gcloud pubsub topics create order-events       --project=${GCP_PROJECT_ID:-local-project} &&
